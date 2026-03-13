@@ -21,7 +21,8 @@ namespace align {
                            int kmer_size, int window_size,
                            int sketch_size, bool noncanonical,
                            int threads, std::string msa_cmd,
-                           bool keep_length)
+                           bool keep_length,
+                           bool enable_wfa)
         : work_dir(work_dir),
           kmer_size(kmer_size),
           window_size(window_size),
@@ -29,7 +30,8 @@ namespace align {
           noncanonical(noncanonical),
           threads(threads),
           msa_cmd(std::move(msa_cmd)),
-          keep_length(keep_length)
+          keep_length(keep_length),
+          enable_wfa(enable_wfa)
     {
         // Load reference sequences and build sketch/minimizer indices
         seq_io::KseqReader reader(ref_fasta_path);
@@ -83,7 +85,8 @@ namespace align {
             true,
             opt.threads,
             opt.msa_cmd,
-            opt.keep_length)
+            opt.keep_length,
+            opt.wfa)
     {
     }
 

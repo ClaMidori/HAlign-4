@@ -312,6 +312,10 @@ static void setupCli(CLI::App& app, Options& opt) {
         ->default_val(2000)
         ->check(CLI::Range(1, 10000000));
 
+    // 开关参数：默认关闭，传入 --wfa 时设为 true
+    app.add_flag("--wfa", opt.wfa,
+        "Enable WFA alignment path (default: disabled).");
+
 
     app.add_flag("--keep-length", opt.keep_length,
         "Keep all reference sequences lengths unchanged. ");
@@ -350,6 +354,7 @@ static void logParsedOptions(const Options& opt) {
         {"kmer-window", std::to_string(opt.kmer_window)},
         {"cons_n", std::to_string(opt.cons_n)},
         {"sketch_size", std::to_string(opt.sketch_size)},
+        {"wfa", boolToStr(opt.wfa)},
         {"keep-length", boolToStr(opt.keep_length)},
         {"save-workdir", boolToStr(opt.save_workdir)}
     };

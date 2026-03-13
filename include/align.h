@@ -345,7 +345,8 @@ namespace align {
                    int kmer_size = 21, int window_size = 10,
                    int sketch_size = 2000, bool noncanonical = true,
                    int threads = 1, std::string msa_cmd = "",
-                   bool keep_length = false);
+                   bool keep_length = false,
+                   bool enable_wfa = false);
 
         // ------------------------------------------------------------------
         // Constructor 2: Initialization based on Options struct (recommended)
