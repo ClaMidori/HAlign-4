@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# 运行位置无关：总是以脚本所在目录为 test 源码目录
+# Location-independent: always uses the directory where the script is located as the test source code directory.
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
 
@@ -94,7 +94,7 @@ if [[ -n "${SUITE:-}" || -n "${SOURCE_FILE:-}" ]]; then
     DOCTEST_ARGS+=(-ts="${SUITE}")
   fi
   if [[ -n "${SOURCE_FILE:-}" ]]; then
-    DOCTEST_ARGS+=(--source-file="${SOURCE_FILE}")   # doctest 支持 --source-file 过滤 :contentReference[oaicite:1]{index=1}
+    DOCTEST_ARGS+=(--source-file="${SOURCE_FILE}")   # doctest supports --source-file filtering. :contentReference[oaicite:1]{index=1}
   fi
   ...
 fi

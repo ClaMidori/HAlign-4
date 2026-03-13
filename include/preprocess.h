@@ -7,72 +7,72 @@
 #include "consensus.h"
 
 // ==============================================================
-// 预处理模块（preprocess）头文件说明（详细中文注释）
+// Preprocessing module (preprocess) header file description (detailed English comments)
 //
-// 本模块负责将用户输入的原始 FASTA（可以是本地路径或远程 URL）准备为后续分析的标准化数据，
-// 并为共识计算/比对准备必要的中间文件。主要职责包括：
-//  1) 将输入文件复制或下载到工作目录下的 `data/raw`；
-//  2) 逐条读取输入序列并做“清洗/规范化”（例如大写化、把非 A/C/G/T/U 替换为 N，去除非法字符等）；
-//  3) 将清洗后的序列写入 `data/clean`；
-//  4) 维护一个 Top-K 选择器（长度优先）来挑选用于构建共识的候选序列集合（写入 `consensus_unaligned.fasta`）；
-//  5) 返回处理的序列总数，供上层决定是否需要后续合并/更多处理。
+// This module is responsible for preparing the user's raw FASTA input (which can be a local path or remote URL) into standardized data for subsequent analysis,
+// and preparing necessary intermediate files for consensus calculation/alignment. Main responsibilities include:
+//  1) Copy or download the input file to `data/raw` under the working directory;
+//  2) Read input sequences one by one and perform "cleaning/normalization" (e.g., uppercase, replace non-A/C/G/T/U with N, remove illegal characters, etc.);
+//  3) Write the cleaned sequences to `data/clean`;
+//  4) Maintain a Top-K selector (length priority) to select candidate sequence sets for building consensus (write to `consensus_unaligned.fasta`);
+//  5) Return the total number of processed sequences for the upper layer to decide if further merging/more processing is needed.
 //
-// 重要语义与约定：
-// - `workdir`：调用方提供的工作目录路径；本模块会在该目录下创建必要的子目录（data/raw, data/clean 等），
-//   若目录不存在将尝试创建；如果要求为空（由上层传入并检查），则会在空目录中创建数据结构；
-// - I/O 行为：如果 `input_path` 是远程 URL（例如 http(s):// 或以 // 开头），本模块会下载到本地；
-//   否则会拷贝本地文件到工作目录。下载/拷贝失败会抛出异常（std::runtime_error）。
-// - 异常与错误处理：函数在遇到严重 I/O 或解析错误时会抛出异常（std::runtime_error）；上层应捕获并记录。
-// - 返回值：函数返回处理的记录数量（uint_t），若数量超过项目配置上限（config.hpp 中定义的 U_MAX），
-//   值会被截断为 U_MAX 并记录告警（调用者应注意）。
+// Important semantics and conventions:
+// - `workdir`: Working directory path provided by the caller; this module will create necessary subdirectories (data/raw, data/clean, etc.) under this directory,
+//   if the directory does not exist, it will try to create it; if required to be empty (passed and checked by upper layer), data structures will be created in the empty directory;
+// - I/O behavior: If `input_path` is a remote URL (e.g., http(s):// or starting with //), this module will download to local;
+//   otherwise, copy the local file to the working directory. Download/copy failure will throw an exception (std::runtime_error).
+// - Exception and error handling: The function throws an exception (std::runtime_error) when encountering serious I/O or parsing errors; the upper layer should catch and log.
+// - Return value: The function returns the number of processed records (uint_t), if the number exceeds the project configuration limit (U_MAX defined in config.hpp),
+//   the value will be truncated to U_MAX and a warning will be logged (caller should note).
 //
-// 性能与并发注意事项：
-// - 该函数为 I/O 密集型：对大文件（GB 级）应关注磁盘带宽与缓冲（可通过 utils::seq_io 的 io 缓冲调优）；
-// - 在高并发环境下，不要并行调用本函数写入同一 `workdir`，以免出现竞态；若需并行，使用不同的工作目录或外部协调。
+// Performance and concurrency considerations:
+// - This function is I/O intensive: For large files (GB level), pay attention to disk bandwidth and buffering (can be tuned via utils::seq_io's io buffering);
+// - In high concurrency environments, do not call this function in parallel to write to the same `workdir` to avoid race conditions; if parallel is needed, use different working directories or external coordination.
 //
 // ==============================================================
 
-// 预处理输入 FASTA，并返回处理的序列数量（total records processed）
+// Preprocess input FASTA and return the number of processed sequences (total records processed)
 //
-// 参数：
-//  - input_path: 输入 FASTA 文件路径，支持本地路径或远程 URL（字符串）。
-//  - workdir:   工作目录（字符串），会在该目录下创建 data/raw 和 data/clean 子目录并写入中间文件。
-//  - cons_n:    要为后续共识选择的序列数量（Top-K，按序列长度挑选），默认为 1000。
+// Parameters:
+//  - input_path: Input FASTA file path, supports local path or remote URL (string).
+//  - workdir: Working directory (string), will create data/raw and data/clean subdirectories under this directory and write intermediate files.
+//  - cons_n: Number of sequences to select for subsequent consensus (Top-K, selected by sequence length), default 1000.
 //
-// 返回值：
-//  - 返回实际处理的序列数（uint_t）；若处理条目过多超过 U_MAX，会截断为 U_MAX 并记录警告。
+// Return value:
+//  - Returns the actual number of processed sequences (uint_t); if too many entries exceed U_MAX, will truncate to U_MAX and log warning.
 //
-// 异常：
-//  - 在无法创建工作目录、无法下载/拷贝输入、或读取 FASTA 失败时，会抛出 std::runtime_error。
+// Exceptions:
+//  - Throws std::runtime_error when unable to create working directory, unable to download/copy input, or failed to read FASTA.
 //
-// 输出（副作用）：
-//  - 在 workdir/data/raw 中保存原始输入副本（或下载得到的文件）；
-//  - 在 workdir/data/clean 中写入清洗后的 FASTA 文件和选中的共识候选（文件名见 config.hpp）；
+// Output (side effects):
+//  - Saves original input copy (or downloaded file) in workdir/data/raw;
+//  - Writes cleaned FASTA file and selected consensus candidates in workdir/data/clean (filenames see config.hpp);
 //
-// 约定：
-//  - 该函数会尽量就地修改和写出数据以减少内存峰值；Top-K 选择器会保留 K 条完整记录在内存中。
+// Conventions:
+//  - The function will try to modify and write data in place to reduce memory peaks; Top-K selector will keep K complete records in memory.
 uint_t preprocessInputFasta(const std::string input_path, const std::string workdir, const int cons_n = 1000);
 
 
 // ==============================================================
 // alignConsensusSequence
 //
-// 说明：对外暴露的工具函数，用于对 `input_file` 中的未对齐共识序列执行多序列比对（MSA），
-// 将比对结果写入 `output_file`。该函数通常在 `preprocessInputFasta` 之后调用，处理流程为：
-//  1) 使用 `msa_cmd` 模板构造命令（模板可包含 {input} {output} {thread} 占位符）；
-//  2) 在指定的工作目录 `workdir` 下执行该命令（通过 shell 或 cmd 模块），并等待其完成；
-//  3) 函数会记录运行时间并对结果文件做基本检查（存在性与大小）。
+// Description: Externally exposed utility function for performing multiple sequence alignment (MSA) on unaligned consensus sequences in `input_file`,
+// writing the alignment results to `output_file`. This function is usually called after `preprocessInputFasta`, processing flow is:
+//  1) Use `msa_cmd` template to construct command (template can contain {input} {output} {thread} placeholders);
+//  2) Execute the command under the specified working directory `workdir` (via shell or cmd module), and wait for completion;
+//  3) The function will log the running time and perform basic checks on the result file (existence and size).
 //
-// 参数：
-//  - input_file: 要对齐的未对齐 FASTA（FilePath）
-//  - output_file: 将写入比对结果的文件路径（FilePath）
-//  - msa_cmd: 多序列比对命令模板字符串（例如 "mafft --auto {input} > {output}"）
-//  - workdir: 用于运行命令时的当前工作目录（命令中的相对路径以此为基准）
-//  - threads: 分配给 MSA 命令的线程数（传递给模板中的 {thread}），具体生效与否取决于所用 MSA 工具
+// Parameters:
+//  - input_file: Unaligned FASTA to align (FilePath)
+//  - output_file: File path to write alignment results (FilePath)
+//  - msa_cmd: Multiple sequence alignment command template string (e.g., "mafft --auto {input} > {output}")
+//  - workdir: Current working directory for running the command (relative paths in command are based on this)
+//  - threads: Number of threads allocated to MSA command (passed to {thread} in template), whether it takes effect depends on the MSA tool used
 //
-// 性能提示：
-//  - MSA 通常是 CPU 密集型、内存敏感的步骤，请根据目标机器调整 `threads` 和 MSA 工具的参数；
-//  - 若 MSA 工具支持流式接口，可考虑在 future 中改为流式管道以减少磁盘 I/O。
+// Performance tips:
+//  - MSA is usually CPU-intensive and memory-sensitive step, please adjust `threads` and MSA tool parameters according to the target machine;
+//  - If MSA tool supports streaming interface, consider changing to streaming pipeline in future to reduce disk I/O.
 //
 // ==============================================================
 void alignConsensusSequence(const FilePath& input_file, const FilePath& output_file,
