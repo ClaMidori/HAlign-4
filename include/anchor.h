@@ -15,52 +15,52 @@
 #include "hash.h"
 
 // ================================================================
-// anchor 命名空间：锚点（Anchor）相关的数据结构与工具函数
+// anchor namespace: Data structures and utility functions related to anchors
 // ================================================================
-// 设计动机：
-// - Anchor 及其配套的过滤/排序函数，本质属于“锚点/链化阶段”的公共数据结构，
-//   不应该和 seed 抽象接口（SeedHitBase/traits）强耦合在同一个命名空间里。
-// - 将其拆到 anchor::，可以让 seed:: 只负责“seed/hit 的抽象与提取”，
-//   anchor:: 专注“如何用 hits 形成 anchors、如何排序/过滤”。
+// Design motivation:
+// - Anchor and its associated filtering/sorting functions are essentially public data structures for the "anchor/chaining stage",
+//   and should not be tightly coupled with the seed abstraction interface (SeedHitBase/traits) in the same namespace.
+// - Splitting them into anchor:: allows seed:: to focus only on "abstraction and extraction of seed/hit",
+//   while anchor:: focuses on "how to form anchors from hits, how to sort/filter".
 //
-// 重要：
-// - 这里仍然使用全局 hash_t（来自 include/hash.h），保持与现有代码一致。
-// - 目前 minimizer::collect_anchors 返回 anchor::Anchors；后续如果支持 syncmer/strobemer，
-//   也可以复用同一套 anchor 工具函数。
+// Important:
+// - This still uses the global hash_t (from include/hash.h) to stay consistent with existing code.
+// - Currently, minimizer::collect_anchors returns anchor::Anchors; in the future, if syncmer/strobemer are supported,
+//   the same set of anchor utility functions can be reused.
 // ================================================================
 namespace anchor
 {
     // ------------------------------------------------------------------
-    // 结构体：Anchor
+    // Struct: Anchor
     // ------------------------------------------------------------------
-    // 语义：描述 ref 与 query 在某个 seed/hash 上的一次“锚点匹配”。
-    // 下游 chaining 会把一组 anchors 串成一条链（候选比对区域）。
+    // Semantics: Describes an "anchor match" between ref and query on a certain seed/hash.
+    // Downstream chaining will string a group of anchors into a chain (candidate alignment region).
     // ------------------------------------------------------------------
     struct Anchor
     {
-        hash_t hash{};              // seed hash（期望 ref/query 相同）
-        std::uint32_t rid_ref{};    // ref 序列 id
-        std::uint32_t pos_ref{};    // ref 上位置（0-based）
-        std::uint32_t rid_qry{};    // query 序列 id（很多场景固定 0）
-        std::uint32_t pos_qry{};    // query 上位置（0-based, forward 坐标系）
-        std::uint32_t span{};       // 覆盖长度（可用 min(ref.span, qry.span)）
-        bool is_rev{};              // ref/query 是否为"相反链"
-        // 可选：预先缓存对角线，chaining 常用
+        hash_t hash{};              // seed hash (expected to be the same for ref/query)
+        std::uint32_t rid_ref{};    // ref sequence id
+        std::uint32_t pos_ref{};    // position on ref (0-based)
+        std::uint32_t rid_qry{};    // query sequence id (often fixed to 0 in many scenarios)
+        std::uint32_t pos_qry{};    // position on query (0-based, forward coordinate system)
+        std::uint32_t span{};       // coverage length (can use min(ref.span, qry.span))
+        bool is_rev{};              // whether ref/query are on "opposite strands"
+        // Optional: pre-cache diagonal, commonly used in chaining
         // int32_t diag{}; // (int32_t)pos_ref - (int32_t)pos_qry
     };
 
     using Anchors = std::vector<Anchor>;
 
     // ==================================================================
-    // 内部辅助结构：用于 ref_hits 的 hash 索引
+    // Internal helper structure: hash index for ref_hits
     // ==================================================================
     struct HashIndex {
-        std::size_t start;  // 在排序后数组中的起始索引
-        std::size_t count;  // 具有该 hash 的元素数量
+        std::size_t start;  // Starting index in the sorted array
+        std::size_t count;  // Number of elements with this hash
     };
 
     // ==================================================================
-    // minimap2 风格的 seeding 过滤参数（默认值与 minimap2 CLI 相同）
+    // minimap2-style seeding filter parameters (default values same as minimap2 CLI)
     // ==================================================================
     struct SeedFilterParams {
         double f_top_frac = 2e-4;                 // -f
@@ -74,108 +74,108 @@ namespace anchor
         return SeedFilterParams{};
     }
 
-    // 计算 -f (fraction) 对应的 occurrence 阈值：忽略 top f_top_frac 最频繁 minimizers
-    // 返回值：occ_cutoff（>=1）。当 distinct minimizers 很少或 f_top_frac==0 时，返回 +inf。
+    // Compute the occurrence threshold for -f (fraction): ignore the top f_top_frac most frequent minimizers
+    // Return value: occ_cutoff (>=1). If there are very few distinct minimizers or f_top_frac==0, return +inf.
     std::size_t compute_occ_cutoff_top_frac(const std::vector<std::size_t>& occs,
                                             double f_top_frac);
 
-    // 计算最终 reference occurrence 阈值：max{u_floor, min{u_ceil, -f}}
+    // Compute the final reference occurrence threshold: max{u_floor, min{u_ceil, -f}}
     std::size_t compute_ref_occ_threshold(const std::vector<std::size_t>& occs,
                                           const SeedFilterParams& p);
 
     // =====================================================================
-    // sortAnchorsByDiagonal - 按对角线排序锚点（用于链化算法）
+    // sortAnchorsByDiagonal - Sort anchors by diagonal (for chaining algorithm)
     // =====================================================================
     void sortAnchorsByDiagonal(Anchors& anchors);
 
     // =====================================================================
-    // sortAnchorsByPosition - 按位置排序锚点
+    // sortAnchorsByPosition - Sort anchors by position
     // =====================================================================
     void sortAnchorsByPosition(Anchors& anchors);
 
     // =====================================================================
-    // filterHighFrequencyAnchors - 过滤高频锚点（参考 minimap2）
+    // filterHighFrequencyAnchors - Filter high-frequency anchors (refer to minimap2)
     // =====================================================================
     void filterHighFrequencyAnchors(Anchors& anchors, std::size_t max_occ = 500);
 
     // =====================================================================
-    // 链化（Chaining）相关数据结构与函数
+    // Chaining-related data structures and functions
     // =====================================================================
-    // 参考 minimap2/lchain.c 的实现，使用动态规划（DP）将锚点串成链。
+    // Refer to minimap2/lchain.c implementation, use dynamic programming (DP) to string anchors into a chain.
     //
-    // 核心思想：
-    // - 锚点按参考位置排序后，使用 DP 计算到达每个锚点的最优得分
-    // - 两个锚点之间的得分 = min(gap_ref, gap_qry, span) - 惩罚项
-    // - 惩罚项考虑 gap 差异（对角线偏移）和 gap 大小
-    // - 回溯找出得分最高的链
+    // Core idea:
+    // - After sorting anchors by reference position, use DP to compute the optimal score to reach each anchor
+    // - The score between two anchors = min(gap_ref, gap_qry, span) - penalty
+    // - The penalty considers gap difference (diagonal offset) and gap size
+    // - Backtrack to find the highest scoring chain
     // =====================================================================
 
     // ------------------------------------------------------------------
-    // 链化参数（参考 minimap2 的默认值）
+    // Chaining parameters (refer to minimap2 default values)
     // ------------------------------------------------------------------
     struct ChainParams {
-        std::int32_t max_dist_x = 5000;       // 参考序列方向最大距离
-        std::int32_t max_dist_y = 5000;       // 查询序列方向最大距离
-        std::int32_t bw = 500;                // 带宽（对角线偏移容忍度）
-        std::int32_t max_skip = 25;           // 最大跳过数（优化）
-        std::int32_t max_iter = 5000;         // 最大迭代次数（优化）
-        std::int32_t min_cnt = 3;             // 链的最小锚点数
-        std::int32_t min_score = 40;          // 链的最小得分
-        float gap_penalty = 0.01f;            // gap 惩罚系数
-        float skip_penalty = 0.01f;           // skip（gap 大小）惩罚系数
+        std::int32_t max_dist_x = 5000;       // Maximum distance in the direction of the reference sequence
+        std::int32_t max_dist_y = 5000;       // Maximum distance in query sequence direction
+        std::int32_t bw = 500;                // Bandwidth (diagonal offset tolerance)
+        std::int32_t max_skip = 25;           // Maximum skip count (optimization)
+        std::int32_t max_iter = 5000;         // Maximum iteration count (optimization)
+        std::int32_t min_cnt = 3;             // Minimum anchor count for a chain
+        std::int32_t min_score = 40;          // Minimum score for a chain
+        float gap_penalty = 0.01f;            // gap penalty coefficient
+        float skip_penalty = 0.01f;           // skip (gap size) penalty coefficient
     };
 
-    // 返回默认链化参数
+    // Return default chaining parameters
     inline ChainParams default_chain_params() {
         return ChainParams{};
     }
 
     // ------------------------------------------------------------------
-    // chainScoreSimple - 计算两个锚点之间的链化得分（内部辅助函数）
+    // chainScoreSimple - Compute the chaining score between two anchors (internal helper function)
     // ------------------------------------------------------------------
-    // 输入：
-    //   ai    : 当前锚点（位置较大）
-    //   aj    : 前一个锚点（位置较小）
-    //   params: 链化参数
+    // Input:
+    //   ai    : current anchor (larger position)
+    //   aj    : previous anchor (smaller position)
+    //   params: chaining parameters
     //
-    // 输出：
-    //   返回链化得分，若两锚点不可链接返回 INT32_MIN
+    // Output:
+    //   Returns chaining score, returns INT32_MIN if the two anchors cannot be linked
     //
-    // 得分计算（参考 minimap2）：
-    //   基础得分 = min(gap_ref, gap_qry, span)
-    //   惩罚 = gap_penalty * |gap_ref - gap_qry| + skip_penalty * min(gap_ref, gap_qry)
-    //   最终得分 = 基础得分 - 惩罚 - 0.5 * log2(|gap_ref - gap_qry| + 1)
+    // Score calculation (refer to minimap2):
+    //   base score = min(gap_ref, gap_qry, span)
+    //   penalty = gap_penalty * |gap_ref - gap_qry| + skip_penalty * min(gap_ref, gap_qry)
+    //   final score = base score - penalty - 0.5 * log2(|gap_ref - gap_qry| + 1)
     //
-    // 注意：此函数仅供 chainAnchors 内部使用
+    // Note: This function is for internal use by chainAnchors only
     // ------------------------------------------------------------------
     std::int32_t chainScoreSimple(const Anchor& ai, const Anchor& aj, const ChainParams& params);
 
     // ------------------------------------------------------------------
-    // chainAnchors - 使用 DP 对锚点进行链化并返回最佳链
+    // chainAnchors - Use DP to chain anchors and return the best chain
     // ------------------------------------------------------------------
-    // 功能：
-    // 使用动态规划算法对锚点进行链化，找出得分最高的锚点链。
-    // 参考 minimap2/lchain.c 的 mg_lchain_dp 实现。
+    // Function:
+    // Uses dynamic programming algorithm to chain anchors and find the highest scoring anchor chain.
+    // Refer to minimap2/lchain.c's mg_lchain_dp implementation.
     //
-    // 输入：
-    //   anchors : 锚点列表（会被排序并修改）
-    //   params  : 链化参数
+    // Input:
+    //   anchors : list of anchors (will be sorted and modified)
+    //   params  : chaining parameters
     //
-    // 输出：
-    //   返回最佳链包含的锚点列表（按位置顺序排列）
-    //   如果没有找到满足条件的链，返回空 Anchors
+    // Output:
+    //   Returns the list of anchors in the best chain (sorted by position)
+    //   If no chain meets the criteria, returns empty Anchors
     //
-    // 算法流程：
-    // 1. 对锚点按 (rid_ref, is_rev, pos_ref, pos_qry) 排序
-    // 2. 使用 DP 计算每个锚点的最优链接得分
-    // 3. 回溯提取得分最高的链
-    // 4. 检查链是否满足 min_cnt 和 min_score 条件
-    // 5. 返回最佳链的锚点列表
+    // Algorithm steps:
+    // 1. Sort anchors by (rid_ref, is_rev, pos_ref, pos_qry)
+    // 2. Use DP to compute the optimal link score for each anchor
+    // 3. Backtrack to extract the highest scoring chain
+    // 4. Check if the chain meets min_cnt and min_score conditions
+    // 5. Return the list of anchors in the best chain
     //
-    // 注意：
-    //   - 输入 anchors 会被排序
-    //   - 返回的锚点按在链中的位置顺序排列（从前到后）
-    //   - 如果有多条得分相同的链，返回第一条
+    // Note:
+    //   - Input anchors will be sorted
+    //   - Returned anchors are sorted by their position in the chain (from start to end)
+    //   - If there are multiple chains with the same score, returns the first one
     // ------------------------------------------------------------------
     Anchors chainAnchors(Anchors& anchors, const ChainParams& params = default_chain_params());
 

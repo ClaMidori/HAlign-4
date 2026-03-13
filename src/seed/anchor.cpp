@@ -140,6 +140,9 @@ std::size_t compute_ref_occ_threshold(const std::vector<std::size_t>& occs,
 //
 // 复杂度：O(A log A)，A=anchors.size()
 // ------------------------------------------------------------------
+
+//ponto de seleção de semente
+//aplicar algoritmo de seleção de similares
 void sortAnchorsByDiagonal(Anchors& anchors)
 {
     std::sort(anchors.begin(), anchors.end(),

@@ -5,9 +5,9 @@
 
 #include "align.h"
 
-// 程序入口：命令行解析 -> 预处理 -> 共识对齐 -> 序列比对 -> 结果合并 -> 清理工作目录
+// Program entry: command line parsing -> preprocessing -> consensus alignment -> sequence alignment -> result merging -> cleanup working directory
 
-// 参数校验与工作目录准备
+// Parameter validation and working directory preparation
 static void checkOption(Options& opt) {
     // 文件校验
     file_io::requireRegularFile(opt.input, "input");

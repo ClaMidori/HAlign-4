@@ -64,24 +64,24 @@ static int envInt(const char* name, int def) {
     return def;
 }
 
-// perf 开关：你已有
+// Performance switch: you already have
 static bool perfEnabled() {
     const char* v = std::getenv("HALIGN4_RUN_PERF");
     return (v != nullptr) && (*v != '\0') && (std::string(v) != "0");
 }
 static bool shouldSkipPerf() { return !perfEnabled(); }
 
-// perf 最大 n：默认 100k，避免默认就尝试 1e6
+// Performance max n: default 100k, avoid trying 1e6 by default
 static std::size_t perfMaxN() {
     return envSizeT("HALIGN4_PERF_MAX_N", 100'000);
 }
 
-// perf 目录：大数据强制要求用户显式指定，避免写到 build 目录或 /tmp
+// Performance directory: large data requires user to explicitly specify to avoid writing to build or /tmp directory
 static fs::path perfBaseDir() {
     if (const char* p = std::getenv("HALIGN4_PERF_DIR"); p && *p) {
         return fs::path(p);
     }
-    return fs::path(); // empty => 未指定
+    return fs::path(); // empty => not specified
 }
 
 // 估算 FASTA 大小（非常粗略，但足够做预检）

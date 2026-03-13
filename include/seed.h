@@ -16,17 +16,17 @@
 #include "anchor.h"
 
 // ================================================================
-// 抽象 seed 接口（不绑定具体 minimizer/syncmer/strobemer 实现）
+// Abstract seed interface (not bound to specific minimizer/syncmer/strobemer implementation)
 //
-// 目标：
-// - 你后续可能支持多种 seed（minimizer 及各种变体，例如 syncmer/strobemer）
-// - 同时希望在不同阶段选择不同存储：只存 hash 或存 hash+位置
-// - 这里仅提供“最抽象”的接口与工具（traits/比较器），不提供任何具体实现。
+// Goals:
+// - You may support multiple seeds in the future (minimizer and various variants, such as syncmer/strobemer)
+// - At the same time, want to choose different storage at different stages: store only hash or hash+position
+// - Here only provide the "most abstract" interface and tools (traits/comparators), no specific implementation.
 // ================================================================
 namespace seed
 {
     // ------------------------------------------------------------
-    // SeedKind：建议放在“容器/批次”层面共享（节省内存）
+    // SeedKind: Recommended to be shared at the "container/batch" level (save memory)
     // ------------------------------------------------------------
     enum class SeedKind : std::uint8_t
     {
@@ -47,14 +47,14 @@ namespace seed
 
 
     // ------------------------------------------------------------
-    // CRTP 基类：hash+位置 seed（hit）
+    // CRTP base class: hash+position seed (hit)
     // ------------------------------------------------------------
-    // 派生类需要提供：
-    //   hash_t hash() const noexcept;     // hash 视角
-    //   uint32_t pos() const noexcept;      // 位置（0-based）
-    //   uint32_t rid() const noexcept;      // 序列 id（多序列场景）
-    //   bool strand() const noexcept;       // 方向
-    //   uint32_t span() const noexcept;     // 覆盖范围（minimizer 一般等于 k；strobemer 可更大）
+    // Derived class needs to provide:
+    //   hash_t hash() const noexcept;     // hash perspective
+    //   uint32_t pos() const noexcept;      // position (0-based)
+    //   uint32_t rid() const noexcept;      // sequence id (multi-sequence scenario)
+    //   bool strand() const noexcept;       // direction
+    //   uint32_t span() const noexcept;     // coverage range (minimizer generally equals k; strobemer can be larger)
     template <typename Derived>
     struct SeedHitBase
     {
@@ -64,7 +64,7 @@ namespace seed
         constexpr bool strand() const noexcept { return static_cast<const Derived&>(*this).strand(); }
         constexpr std::uint32_t span() const noexcept { return static_cast<const Derived&>(*this).span(); }
 
-        // 一个通用排序：先 hash，再 rid/pos/strand
+        // A general sorting: hash first, then rid/pos/strand
         friend constexpr bool operator<(const SeedHitBase& a, const SeedHitBase& b) noexcept
         {
             if (a.hash() != b.hash()) return a.hash() < b.hash();
@@ -80,29 +80,29 @@ namespace seed
     };
 
     // ------------------------------------------------------------
-    // 统一访问接口（free-functions）
+    // Unified access interface (free-functions)
     // ------------------------------------------------------------
 
-    // 默认 trait：没有位置信息（你仍然可以手动特化覆盖）
+    // Default trait: no position information (you can still manually specialize to override)
     template <typename T>
     struct has_position : std::false_type {};
 
-    // 自动推导：如果 T 继承了 SeedHitBase<T>，则认为它“有位置”。
-    // 这样后续你每增加一个 Hit 类型，只要继承 SeedHitBase 就自动生效，不需要再写特化。
+    // Auto deduction: if T inherits from SeedHitBase<T>, then it is considered to "have position".
+    // This way, every time you add a Hit type later, as long as it inherits SeedHitBase, it automatically takes effect, no need to write specialization again.
     template <typename T>
     struct has_position_auto : std::is_base_of<SeedHitBase<T>, T> {};
 
     template <typename T>
     inline constexpr bool has_position_v = has_position<T>::value || has_position_auto<T>::value;
 
-    // hash-only：要求类型提供 hash()
+    // hash-only: requires type to provide hash()
     template <typename SeedT>
     inline constexpr hash_t hash_value(const SeedT& s) noexcept
     {
         return s.hash();
     }
 
-    // hit：要求类型提供 hash()/pos()/rid()/strand()/span()
+    // hit: requires type to provide hash()/pos()/rid()/strand()/span()
     template <typename HitT>
     inline constexpr std::uint32_t get_pos(const HitT& h) noexcept { return h.pos(); }
     template <typename HitT>
@@ -112,7 +112,7 @@ namespace seed
     template <typename HitT>
     inline constexpr std::uint32_t get_span(const HitT& h) noexcept { return h.span(); }
 
-    // 只看 hash 的比較器（適用於 sort+unique / Jaccard / containment 等）
+    // Comparator that only looks at hash (applicable to sort+unique / Jaccard / containment etc.)
     struct HashOnlyLess
     {
         template <typename M>
@@ -140,19 +140,19 @@ namespace minimizer
     // =============================================================
     // nt4_table
     // -------------------------------------------------------------
-    // 把输入字符映射为 2-bit 编码（0..3），其余字符为 invalid(4)。
+    // Map input characters to 2-bit encoding (0..3), other characters are invalid(4).
     // - 'A'/'a' -> 0
     // - 'C'/'c' -> 1
     // - 'G'/'g' -> 2
     // - 'T'/'t' -> 3
-    // - 'U'/'u' -> 3   (RNA 的 U 当作 T)
-    // - 其它（包括 'N'/'n'、'-' 等） -> 4
+    // - 'U'/'u' -> 3   (RNA U treated as T)
+    // - Others (including 'N'/'n', '-', etc.) -> 4
     //
-    // 设计目的：
-    // - 让高性能实现（rolling k-mer/minimap2风格）可以 O(1) 查表，避免 switch 分支。
-    // - 表放头文件里，多个 .cpp 复用，不用重复写 256 项初始化。
+    // Design purpose:
+    // - Allow high-performance implementation (rolling k-mer/minimap2 style) to O(1) lookup table, avoid switch branches.
+    // - Table placed in header file, reused by multiple .cpp, no need to repeat 256 item initialization.
     //
-    // ASCII 码值：A=65, C=67, G=71, T=84, U=85, a=97, c=99, g=103, t=116, u=117
+    // ASCII values: A=65, C=67, G=71, T=84, U=85, a=97, c=99, g=103, t=116, u=117
     // =============================================================
     inline constexpr std::uint8_t nt4_table[256] = {
         // 0-15
@@ -188,10 +188,10 @@ namespace minimizer
         // 240-255
         4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4
     };
-    // ------------------------- minimizer hit（带位置） -------------------------
-    // 用于 chaining/定位：需要知道落在哪条序列(rid)、什么位置(pos)、方向(strand)以及覆盖长度(span)。
+    // ------------------------- minimizer hit (with position) -------------------------
+    // Used for chaining/positioning: need to know which sequence (rid), what position (pos), direction (strand), and coverage length (span).
     //
-    // 内存优化：采用 minimap2 的 mm128_t 打包方式，只用 16 字节存下所有信息：
+    // Memory optimization: Use minimap2's mm128_t packing method, store all information in only 16 bytes:
     //   x = (hash << 8) | span
     //     - bit[0..7]   : span (8 bit)
     //     - bit[8..63]  : hash (56 bit)
@@ -200,9 +200,9 @@ namespace minimizer
     //     - bit[32..62] : rid (31 bit)
     //     - bit[63]     : strand (1 bit)
     //
-    // 备注：
-    // - 56bit hash 对绝大多数场景足够；如果你希望保留 64bit hash，需要改变打包布局。
-    // - span 用 8bit，适合 k<=255；若以后需要更大 k，可调整布局。
+    // Notes:
+    // - 56bit hash is sufficient for most scenarios; if you want to keep 64bit hash, need to change packing layout.
+    // - span uses 8bit, suitable for k<=255; if larger k is needed later, layout can be adjusted.
     struct MinimizerHit : public seed::SeedHitBase<MinimizerHit>
     {
         hash_t x{0};
@@ -211,7 +211,7 @@ namespace minimizer
         constexpr MinimizerHit() = default;
         constexpr MinimizerHit(hash_t x_, hash_t y_) : x(x_), y(y_) {}
 
-        // 打包/解包 x
+        // pack/unpack x
         static constexpr hash_t pack_x(hash_t hash56, std::uint8_t span) noexcept
         {
             return (hash56 << 8) | static_cast<hash_t>(span);
@@ -225,7 +225,7 @@ namespace minimizer
             return (x >> 8);
         }
 
-        // 打包/解包 y
+        // pack/unpack y
         static constexpr hash_t pack_y(std::uint32_t pos, std::uint32_t rid, bool strand) noexcept
         {
             const std::uint32_t rid_with_strand = (rid & 0x7fffffffU) | (strand ? 0x80000000U : 0U);
@@ -248,13 +248,13 @@ namespace minimizer
             return (rid_with_strand_from_y(y) & 0x80000000U) != 0U;
         }
 
-        // 便捷构造：输入“完整语义字段”，内部自动打包
+        // Convenient constructor: input "complete semantic fields", internal automatic packing
         constexpr MinimizerHit(hash_t hash56, std::uint32_t pos, std::uint32_t rid, bool strand, std::uint8_t span) noexcept
             : x(pack_x(hash56, span)), y(pack_y(pos, rid, strand))
         {
         }
 
-        // SeedHitBase required API（仍然提供 hash/pos/rid/strand/span）
+        // SeedHitBase required API (still provide hash/pos/rid/strand/span)
         constexpr hash_t hash() const noexcept { return hash_from_x(x); }
         constexpr std::uint32_t pos() const noexcept { return pos_from_y(y); }
         constexpr std::uint32_t rid() const noexcept { return rid_from_y(y); }
@@ -268,17 +268,17 @@ namespace minimizer
     // =====================================================================
     // extractMinimizer
     // ---------------------------------------------------------------------
-    // 从一条输入序列中提取 minimizer hit 列表（hash+位置）。
+    // Extract minimizer hit list (hash+position) from an input sequence.
     //
-    // 参数：
-    //   seq       : 输入序列
-    //   k         : k-mer 大小
-    //   w         : 窗口大小（以 k-mer 为单位）
+    // Parameters:
+    //   seq       : input sequence
+    //   k         : k-mer size
+    //   w         : window size (in k-mer units)
     //
-    // 返回：
-    //   minimizer hit 列表（按扫描顺序）。
+    // Returns:
+    //   minimizer hit list (in scan order).
     //
-    // 注意：这里只提供声明；实现请放到对应的 .cpp 文件中。
+    // Note: Only declaration provided here; implementation should be placed in corresponding .cpp file.
     // =====================================================================
     MinimizerHits extractMinimizer(const std::string& seq,
                                    std::size_t k,
@@ -286,10 +286,10 @@ namespace minimizer
                                    bool non_canonical);
 
     // =====================================================================
-    // collect_anchors - 收集锚点（参考 minimap2 实现）
+    // collect_anchors - collect anchors (refer to minimap2 implementation)
     // ---------------------------------------------------------------------
-    // 返回：
-    //   anchor::Anchors - 锚点列表（未排序）
+    // Returns:
+    //   anchor::Anchors - anchor list (unsorted)
     // =====================================================================
     anchor::Anchors collect_anchors(const MinimizerHits& ref_hits, const MinimizerHits& qry_hits, anchor::SeedFilterParams params = anchor::default_mm2_params());
 

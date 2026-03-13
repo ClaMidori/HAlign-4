@@ -5,9 +5,9 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 
-include(CTest)  # 提供 ctest 基础设施与 add_test :contentReference[oaicite:1]{index=1}
+include(CTest)  # Provide ctest infrastructure and add_test support
 
-# 如果用户没有指定 CMAKE_BUILD_TYPE，则默认设置为 Release，以便默认开启优化构建
+# If user does not specify CMAKE_BUILD_TYPE, default to Release so optimizations are enabled by default
 if(NOT DEFINED CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE "Release" CACHE STRING "Choose the type of build (default: Release)" FORCE)
     message(STATUS "CMAKE_BUILD_TYPE not set -> defaulting to: ${CMAKE_BUILD_TYPE}")
@@ -21,7 +21,7 @@ find_package(OpenMP REQUIRED)
 find_package(CURL)
 find_package(ZLIB)
 
-# --- 复用你的实现：做一个 support 静态库 ---
+# --- Reuse your implementation: build a support static library ---
 add_library(halign4_test_support STATIC
         "${HALIGN4_ROOT}/src/utils/preprocess.cpp"
         "${HALIGN4_ROOT}/src/utils/seq_io.cpp"
@@ -49,14 +49,14 @@ target_include_directories(halign4_test_support PUBLIC
         "${HALIGN4_ROOT}/extern/WFA2-lib"
 )
 
-# 说明：这里显式链接 WFA2 静态库，避免只暴露 include 目录却没有对应库，
-#       否则使用 WFA2 接口的测试在链接阶段可能报未定义符号。
+# Note: Explicitly link WFA2 static library here to avoid exposing only include directories without the corresponding library,
+#       otherwise tests using WFA2 interfaces may get undefined symbol errors at link time.
 target_link_libraries(halign4_test_support PUBLIC
         OpenMP::OpenMP_CXX
         wfa2::wfa2cpp_static
 )
 
-# 在 Release 时对测试支持库也启用与主项目一致的激进优化
+# Enable the same aggressive optimizations for the test support library as the main project in Release builds
 if (MSVC)
     target_compile_options(halign4_test_support PRIVATE
         $<$<CONFIG:Release>:/O2>
@@ -88,31 +88,31 @@ target_compile_definitions(halign4_test_support PUBLIC
 )
 
 # ---------------------------------------------------------------------------
-# WFA2-lib（Wavefront Alignment）子项目裁剪：只编译核心库，不编译测试/benchmark
+# WFA2-lib (Wavefront Alignment) subproject trimming: compile only the core library, not tests/benchmark
 # ---------------------------------------------------------------------------
 set(BUILD_TESTING OFF CACHE BOOL "Disable tests for subprojects" FORCE)
 set(CMAKE_DISABLE_FIND_PACKAGE_PkgConfig ON CACHE BOOL "Avoid PkgConfig dependency for WFA2-lib" FORCE)
 
-# WFA2-lib 的 OPENMP 选项默认 OFF。但我们的主工程已启用 OpenMP，
-# 为了让 WFA2-lib 正确打开 WFA_PARALLEL，这里显式打开。
+# The OPENMP option for WFA2-lib is OFF by default. Our main project enables OpenMP,
+# so enable it here to ensure WFA2-lib correctly turns on WFA_PARALLEL.
 set(OPENMP ON CACHE BOOL "Enable OpenMP for WFA2-lib" FORCE)
 
-# 关键：只编译核心库，关闭 WFA2-lib 自带 benchmark/tests。
-# （这两个开关由我们在 extern/WFA2-lib/CMakeLists.txt 中补充，默认 ON；这里只在主工程里强制关闭。）
+# Key: Only build the core library, disable WFA2-lib's built-in benchmark/tests.
+# (These two switches are added by us in extern/WFA2-lib/CMakeLists.txt, default ON; here we force them off in the main project.)
 set(WFA2LIB_BUILD_BENCHMARK OFF CACHE BOOL "Do not build WFA2-lib benchmark" FORCE)
 set(WFA2LIB_BUILD_TESTS OFF CACHE BOOL "Do not register WFA2-lib tests" FORCE)
 
-# 注意：本 CMakeLists 位于 test/ 目录下，这里需要返回到工程根目录再进入 extern/WFA2-lib。
-# CMake 规定：add_subdirectory() 引入“非当前目录的子目录”时，必须显式指定 binary dir，
-# 否则会报："not a subdirectory ... must be explicitly specified"。
+# Note: This CMakeLists is under test/, so we need to go back to the project root before entering extern/WFA2-lib.
+# CMake requires: when add_subdirectory() includes a "non-current-directory subdirectory", the binary dir must be explicitly specified,
+# otherwise it will error: "not a subdirectory ... must be explicitly specified".
 #
-# 这里把 WFA2-lib 的构建目录固定放到 test 的构建树里，避免污染主工程 build 目录，
-# 也避免多处 add_subdirectory 相互冲突。
+# Here we fix the WFA2-lib build directory inside the test build tree to avoid polluting the main project build directory,
+# and to avoid multiple add_subdirectory calls conflicting with each other.
 add_subdirectory(${HALIGN4_ROOT}/extern/WFA2-lib ${CMAKE_CURRENT_BINARY_DIR}/wfa2lib-build)
 
-# 注意：这里不能直接链接到主工程 target `halign4`（在此 CMakeLists 中并未定义），
-# 否则在配置阶段会报错。我们将 OpenMP + WFA2 静态库链接到测试支撑库，
-# 让 halign4_tests 通过 halign4_test_support 间接获得这些依赖，保持测试逻辑不变。
+# Note: We cannot directly link to the main project target `halign4` (not defined in this CMakeLists),
+# otherwise configuration will fail. We link OpenMP + WFA2 static libraries into the test support library,
+# so halign4_tests obtains these dependencies indirectly through halign4_test_support, keeping test logic unchanged.
 target_link_libraries(halign4_test_support PRIVATE OpenMP::OpenMP_CXX wfa2::wfa2cpp_static)
 
 
@@ -130,7 +130,7 @@ add_executable(halign4_tests
 
 target_link_libraries(halign4_tests PRIVATE halign4_test_support)
 
-# 对测试可执行文件也应用 Release 优化选项
+# The Release optimization option is also applied to the test executable.
 if (MSVC)
     target_compile_options(halign4_tests PRIVATE
         $<$<CONFIG:Release>:/O2>
@@ -152,10 +152,10 @@ else()
     )
 endif()
 
-# 建议显式启用（即使 include(CTest) 已经做了也不冲突）
+# It is recommended to enable it explicitly (even if include(CTest) has already been done, there will be no conflict).
 enable_testing()
 
-# 注册一个测试：运行这个可执行文件
+# Register a test: Run this executable file
 # add_test(NAME halign4_tests COMMAND halign4_tests)
 
 add_test(NAME consensus
@@ -177,15 +177,15 @@ add_test(NAME jaccard
 add_test(NAME write_fasta
         COMMAND halign4_tests --test-suite=write_fasta)
 
-# Align 正确性测试（快速）
+# Align Correctness Test (Quick)
 add_test(NAME align
         COMMAND halign4_tests --test-suite=align)
 
-# Align 性能测试（耗时较长，包含高相似度序列测试）
+# Align performance test (time-consuming, includes high similarity sequence testing)
 add_test(NAME align_perf
         COMMAND halign4_tests --test-suite=align_perf)
 
-# Anchor 正确性测试（快速）
+# Anchor correctness test (quick)
 add_test(NAME anchor
         COMMAND halign4_tests --test-suite=anchor)
 

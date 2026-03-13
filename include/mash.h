@@ -10,9 +10,9 @@
 
 namespace mash
 {
-    // nt4_table: 将 DNA 碱基字符映射到 0/1/2/3，其他字符映射到 4
-    // A/a -> 0, C/c -> 1, G/g -> 2, T/t/U/u -> 3, 其他 -> 4
-    // ASCII 码值：A=65, C=67, G=71, T=84, U=85, a=97, c=99, g=103, t=116, u=117
+    // nt4_table: map DNA base characters to 0/1/2/3, other characters to 4
+    // A/a -> 0, C/c -> 1, G/g -> 2, T/t/U/u -> 3, others -> 4
+    // ASCII values: A=65, C=67, G=71, T=84, U=85, a=97, c=99, g=103, t=116, u=117
     inline constexpr std::uint8_t nt4_table[256] = {
         // 0-15
         4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,
@@ -65,8 +65,8 @@ namespace mash
     // ------------------------------------------------------------
     // Construction
     // ------------------------------------------------------------
-    // 生成 MinHash sketch：对序列做 k-mer hash，然后取 bottom-k（sketch_size）并 sort+unique。
-    // 注意：mash 模块与 seed/minimizer 无关；这里的 w 仅为兼容旧接口保留，当前实现不使用。
+    // Generate MinHash sketch: do k-mer hash on sequence, then take bottom-k (sketch_size) and sort+unique.
+    // Note: mash module is unrelated to seed/minimizer; w here is only kept for compatibility with old interface, current implementation does not use.
     Sketch sketchFromSequence(const std::string& seq,
                              std::size_t k,
                              std::size_t sketch_size,
