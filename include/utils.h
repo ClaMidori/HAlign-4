@@ -191,8 +191,12 @@ namespace seq_io
     }
     inline void cleanSequence(SeqRecord& seq)
     {
+        seq.n_num = 0;
         for (char& ch : seq.seq) {
             ch = static_cast<char>(clean_table[static_cast<unsigned char>(ch)]);
+            if (ch == 'N') {
+                ++seq.n_num;
+            }
         }
     }
 
@@ -444,6 +448,9 @@ namespace seq_io
         } else {
             rec.qual.clear();
         }
+
+        // 统计当前序列中 N/n 的数量，保证不同构造路径字段语义一致。
+        rec.n_num = 0;
 
         return rec;
     }
