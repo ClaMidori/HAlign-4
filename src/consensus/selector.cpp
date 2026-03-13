@@ -154,6 +154,14 @@ TopKLongestSelector::TopKLongestSelector(std::size_t k)
         const std::size_t cand_len = rec.seq.size();
         const std::uint64_t cand_order = order_counter_++;
 
+        if ((double)rec.n_num / (double)rec.seq.size() > 0.01) {
+            return;
+        }
+
+        if ((double)rec.n_num / (double)rec.seq.size() > 0.01) {
+            return;
+        }
+
         // not full: accept
         if (heap_.size() < k_) {
             Item item;
