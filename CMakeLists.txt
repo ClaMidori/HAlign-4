@@ -4,7 +4,7 @@ project(HAlign4)
 set(CMAKE_CXX_STANDARD 20)
 option(HALIGN4_NATIVE_ARCH "Enable -march=native" OFF)
 
-# 如果用户没有指定 CMAKE_BUILD_TYPE，则默认设置为 Release，以便默认开启优化构建
+# If the user did not specify CMAKE_BUILD_TYPE, default to Release so optimizations are enabled by default
 if(NOT DEFINED CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE "Release" CACHE STRING "Choose the type of build (default: Release)" FORCE)
     message(STATUS "CMAKE_BUILD_TYPE not set -> defaulting to: ${CMAKE_BUILD_TYPE}")
@@ -61,17 +61,17 @@ endif()
 find_package(OpenMP REQUIRED)
 
 # ---------------------------------------------------------------------------
-# WFA2-lib（Wavefront Alignment）子项目裁剪：只编译核心库，不编译测试/benchmark
+# Trim down the WFA2-lib (Wavefront Alignment) subproject: only build the core library, not tests/benchmarks
 # ---------------------------------------------------------------------------
 set(BUILD_TESTING OFF CACHE BOOL "Disable tests for subprojects" FORCE)
 set(CMAKE_DISABLE_FIND_PACKAGE_PkgConfig ON CACHE BOOL "Avoid PkgConfig dependency for WFA2-lib" FORCE)
 
-# WFA2-lib 的 OPENMP 选项默认 OFF。但我们的主工程已启用 OpenMP，
-# 为了让 WFA2-lib 正确打开 WFA_PARALLEL，这里显式打开。
+# WFA2-lib's OpenMP option is OFF by default. Since our top-level project enables OpenMP,
+# explicitly turn it on here so WFA_PARALLEL is enabled inside WFA2-lib.
 set(OPENMP ON CACHE BOOL "Enable OpenMP for WFA2-lib" FORCE)
 
-# 关键：只编译核心库，关闭 WFA2-lib 自带 benchmark/tests。
-# （这两个开关由我们在 extern/WFA2-lib/CMakeLists.txt 中补充，默认 ON；这里只在主工程里强制关闭。）
+# Critical: only build the core library, turn off WFA2-lib's bundled benchmark/tests.
+# (These two options are added in extern/WFA2-lib/CMakeLists.txt and default to ON; we force them off here.)
 set(WFA2LIB_BUILD_BENCHMARK OFF CACHE BOOL "Do not build WFA2-lib benchmark" FORCE)
 set(WFA2LIB_BUILD_TESTS OFF CACHE BOOL "Do not register WFA2-lib tests" FORCE)
 
@@ -79,15 +79,15 @@ add_subdirectory(extern/WFA2-lib)
 
 target_link_libraries(halign4 PRIVATE OpenMP::OpenMP_CXX wfa2::wfa2cpp_static)
 
-# 在 Release 时添加激进的优化标志：GCC/Clang 与 MSVC 分别处理
+# Add aggressive optimization flags in Release builds (handled separately for GCC/Clang vs MSVC)
 if (MSVC)
-    # MSVC 优化：/O2 开启优化，/arch:AVX2 请求 AVX2 指令集（可根据需要改为 AVX 或 AVX512），/GL 全局优化
+    # MSVC optimizations: /O2 enables optimizations, /arch:AVX2 requests AVX2 (change to AVX/AVX512 if desired), /GL enables whole program optimization
     target_compile_options(halign4 PRIVATE
         $<$<CONFIG:Release>:/O2>
         $<$<CONFIG:Release>:/arch:AVX2>
         $<$<CONFIG:Release>:/GL>
     )
-    # 链接时启用链接时期优化（LTCG）
+    # Enable link-time code generation (LTCG)
     target_link_options(halign4 PRIVATE
         $<$<CONFIG:Release>:/LTCG>
     )

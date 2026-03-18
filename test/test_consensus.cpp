@@ -84,9 +84,9 @@ static fs::path perfBaseDir() {
     return fs::path(); // empty => not specified
 }
 
-// 估算 FASTA 大小（非常粗略，但足够做预检）
+// Estimate FASTA size (very rough, but good enough for a pre-check)
 static std::uint64_t estimateFastaBytes(std::size_t n_seqs, std::size_t len) {
-    // header: ">s<idx>\n" 约 12~20 字节；我们按 24 估
+    // header: ">s<idx>\n" is about 12-20 bytes; assume 24
     // seq: len + "\n"
     const std::uint64_t per = (std::uint64_t)len + 1ull + 24ull;
     return per * (std::uint64_t)n_seqs;
@@ -95,8 +95,8 @@ static std::uint64_t estimateFastaBytes(std::size_t n_seqs, std::size_t len) {
 static bool hasEnoughDisk(const fs::path& dir, std::uint64_t need_bytes) {
     std::error_code ec;
     auto sp = fs::space(dir, ec);
-    if (ec) return true; // 取不到就不拦（但会打印提示）
-    // 留 20% buffer，避免写到一半触发配额/满盘
+    if (ec) return true; // If we can't get space info, don't block (but a warning will be printed)
+    // Leave a 20% buffer to avoid hitting quota/full disk mid-write
     return sp.available > (need_bytes * 12ull) / 10ull;
 }
 
@@ -110,7 +110,7 @@ static void writeLargeAlignedFasta(const fs::path& p, std::size_t n_seqs, std::s
     std::string seq(len, 'A');
     seq.push_back('\n');
 
-    // 可选：写入进度（避免外部 watchdog 认为“无输出卡死”）
+    // Optional: emit progress (prevents external watchdog from thinking the process is frozen due to no output)
     const std::size_t progress_step = envSizeT("HALIGN4_PERF_PROGRESS_STEP", 0);
 
     for (std::size_t i = 0; i < n_seqs; ++i) {
@@ -130,7 +130,7 @@ static void writeLargeAlignedFasta(const fs::path& p, std::size_t n_seqs, std::s
 static void runOnePerf(std::size_t n_seqs) {
     constexpr std::size_t LEN   = 30000;
 
-    // 简化版：仅在显式开启 perf 时运行；写入输入（如需），然后直接调用共识计算并计时。
+    // Simplified: only run when perf is explicitly enabled; write input (if needed) then call consensus computation and time it.
     if (!perfEnabled()) {
         MESSAGE("perf disabled - skip");
         return;

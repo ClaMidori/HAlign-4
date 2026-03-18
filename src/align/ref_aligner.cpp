@@ -16,7 +16,7 @@
 
 namespace align {
 
-    // 读取参考序列，计算索引，生成共识序列
+    // Read reference sequences, compute indices, generate consensus sequences
     RefAligner::RefAligner(const FilePath& work_dir, const FilePath& ref_fasta_path,
                            int kmer_size, int window_size,
                            int sketch_size, bool noncanonical,
@@ -31,7 +31,7 @@ namespace align {
           msa_cmd(std::move(msa_cmd)),
           keep_length(keep_length)
     {
-        // 加载参考序列并构建 sketch/minimizer 索引
+        // Load reference sequences and build sketch/minimizer indices
         seq_io::KseqReader reader(ref_fasta_path);
         seq_io::SeqRecord rec;
         while (reader.next(rec)) {
@@ -44,13 +44,13 @@ namespace align {
             ref_minimizers.push_back(std::move(minimizer));
         }
 
-        // 设置共识序列生成的文件路径
+        // Set file paths for consensus sequence generation
         const FilePath consensus_unaligned_file = ref_fasta_path;
         const FilePath consensus_aligned_file = FilePath(work_dir) / WORKDIR_DATA / DATA_CLEAN / CLEAN_CONS_ALIGNED;
         const FilePath consensus_file = FilePath(work_dir) / WORKDIR_DATA / DATA_CLEAN / CLEAN_CONS_FASTA;
         const FilePath consensus_json_file = FilePath(work_dir) / WORKDIR_DATA / DATA_CLEAN / CLEAN_CONS_JSON;
 
-        // 执行 MSA 并生成共识序列
+        // Execute MSA and generate consensus sequences
         constexpr std::size_t consensus_batch_size = 4096;
         alignConsensusSequence(consensus_unaligned_file, consensus_aligned_file, this->msa_cmd, threads);
         std::string consensus_string = consensus::generateConsensusSequence(
@@ -60,7 +60,7 @@ namespace align {
         consensus_seq.id = "consensus";
         consensus_seq.seq = std::move(consensus_string);
 
-        // 预计算共识序列的 sketch 和 minimizer，避免重复计算
+        // Pre-compute consensus sequence sketch and minimizer to avoid recomputation
         consensus_sketch = mash::sketchFromSequence(
             consensus_seq.seq,
             static_cast<std::size_t>(kmer_size),
@@ -72,7 +72,7 @@ namespace align {
             consensus_seq.seq, kmer_size, window_size, noncanonical);
     }
 
-    // Options 配置委托构造
+    // Options configuration delegating constructor
     RefAligner::RefAligner(const Options& opt, const FilePath& ref_fasta_path)
         : RefAligner(
             opt.workdir,
@@ -87,7 +87,7 @@ namespace align {
     {
     }
 
-    // 全局比对：生成 minimizer 锚点，执行比对
+    // Global alignment: generate minimizer anchor points, perform alignment
     cigar::Cigar_t RefAligner::globalAlign(const std::string& ref,
                                            const std::string& query,
                                            double similarity,
@@ -100,7 +100,7 @@ namespace align {
         SeedHits ref_mz_tmp;
         SeedHits qry_mz_tmp;
 
-        // 若 minimizer 为空，现场计算
+        // If minimizer is empty, compute on the spot
         if (ref_mz_ptr == nullptr || ref_mz_ptr->empty()) {
             ref_mz_tmp = minimizer::extractMinimizer(ref, kmer_size, window_size, noncanonical);
             ref_mz_ptr = &ref_mz_tmp;
@@ -124,7 +124,7 @@ namespace align {
         return result;
     }
 
-    // 写入 SAM 记录
+    // Write SAM record
     void RefAligner::writeSamRecord(const seq_io::SeqRecord& q,
                                     const cigar::Cigar_t& cigar,
                                     std::string_view ref_name,
@@ -135,7 +135,7 @@ namespace align {
         out.writeSam(sam_rec);
     }
 
-    // 合并共识序列和 SAM 为 FASTA
+    // Merge consensus sequence and SAM to FASTA
     std::size_t RefAligner::mergeConsensusAndSamToFasta(
         const std::vector<FilePath>& sam_paths,
         const FilePath& fasta_path,
@@ -208,12 +208,12 @@ namespace align {
         return total_count;
     }
 
-    // 单条 query 比对
+    // Single query alignment
     void RefAligner::alignOneQueryToRef(const seq_io::SeqRecord& q,
                                        seq_io::SeqWriter& out,
                                        seq_io::SeqWriter& out_insertion) const
     {
-        // 计算 query 的 sketch 和 minimizer
+        // Compute query sketch and minimizer
         const mash::Sketch qsk = mash::sketchFromSequence(
             q.seq,
             static_cast<std::size_t>(kmer_size),
@@ -224,7 +224,7 @@ namespace align {
         const SeedHits query_minimizer = minimizer::extractMinimizer(
             q.seq, kmer_size, window_size, noncanonical);
 
-        // 选择最相似的参考序列
+        // Select most similar reference sequence
         seq_io::SeqRecord best_ref;
         double best_jaccard = -1.0;
         std::size_t best_ref_idx = 0;
@@ -243,13 +243,13 @@ namespace align {
             best_jaccard = mash::jaccard(qsk, consensus_sketch);
         }
 
-        // 执行全局比对
+        // Perform global alignment
         cigar::Cigar_t initial_cigar = globalAlign(
             best_ref.seq, q.seq, best_jaccard,
             &ref_minimizers[best_ref_idx],
             &query_minimizer);
 
-        // 单参考序列：直接使用初始比对结果
+        // Single reference sequence: use initial alignment result directly
         if (ref_sequences.size() == 1) {
             if (cigar::hasInsertion(initial_cigar)) {
                 writeSamRecord(q, initial_cigar, consensus_seq.id, out_insertion);
@@ -259,7 +259,7 @@ namespace align {
             return;
         }
 
-        // 多参考序列 + keep_length：保留与最佳参考的比对结果
+        // Multiple reference sequences + keep_length: retain alignment result with best reference
         if (keep_length) {
             if (cigar::hasInsertion(initial_cigar)) {
                 writeSamRecord(q, initial_cigar, best_ref.id, out_insertion);
@@ -269,7 +269,7 @@ namespace align {
             return;
         }
 
-        // 多参考序列 + 非 keep_length：有插入时与共识序列二次比对
+        // Multiple reference sequences + non-keep_length: re-align with consensus when having insertions
         const double consensus_similarity = mash::jaccard(qsk, consensus_sketch);
         cigar::Cigar_t recheck_cigar = globalAlign(
             consensus_seq.seq, q.seq, consensus_similarity,
@@ -282,12 +282,12 @@ namespace align {
         }
     }
 
-    // 批量比对 query 序列 - 并行处理，每线程独立输出
+    // Batch alignment of query sequences - parallel processing, independent output per thread
     void RefAligner::alignQueryToRef(const FilePath& qry_fasta_path, std::size_t batch_size)
     {
-        // 参数检查和初始化
+        // Parameter validation and initialization
         if (ref_sequences.empty() || ref_sketch.empty()) {
-            throw std::runtime_error("RefAligner::alignQueryToRef: 参考序列为空");
+            throw std::runtime_error("RefAligner::alignQueryToRef: reference sequences are empty");
         }
 
         constexpr std::size_t default_batch_size = 2560;
@@ -295,7 +295,7 @@ namespace align {
             batch_size = default_batch_size;
         }
 
-        // 设置线程数
+        // Set number of threads
         if (threads > 0) {
             omp_set_num_threads(threads);
         }
@@ -306,7 +306,7 @@ namespace align {
 
         spdlog::info("Starting alignment: {} threads, batch size {}", nthreads, batch_size);
 
-        // 为每个线程创建独立的输出文件
+        // Create independent output files for each thread
         outs_path.clear();
         outs_path.resize(static_cast<std::size_t>(nthreads));
         outs_with_insertion_path.clear();
@@ -338,7 +338,7 @@ namespace align {
             outs_with_insertion[static_cast<std::size_t>(tid)]->writeSamHeader("@HD\tVN:1.6\tSO:unknown");
         }
 
-        // 流式读取 + 批处理并行
+        // Stream reading + batch parallel processing
         seq_io::KseqReader reader(qry_fasta_path);
         std::vector<seq_io::SeqRecord> chunk;
         chunk.reserve(batch_size);
@@ -350,7 +350,7 @@ namespace align {
             chunk.shrink_to_fit();
             chunk.reserve(batch_size);
 
-            // 读取一个批次
+            // Read one batch
             seq_io::SeqRecord rec;
             for (std::size_t i = 0; i < batch_size; ++i) {
                 if (!reader.next(rec)) break;
@@ -358,7 +358,7 @@ namespace align {
             }
             if (chunk.empty()) break;
 
-            // 并行处理当前批次
+            // Parallel process current batch
             #pragma omp parallel default(none) shared(outs, outs_with_insertion, chunk)
             {
                 const int tid = omp_get_thread_num();
@@ -373,7 +373,7 @@ namespace align {
 
             const std::size_t chunk_size = chunk.size();
 
-            // 刷新所有 writer
+            // Flush all writers
             for (auto& w : outs) {
                 w->flush();
             }
@@ -385,7 +385,7 @@ namespace align {
             progress.tick(chunk_size);
         }
 
-        // 完成并确保所有数据写入磁盘
+        // Finish and ensure all data written to disk
         progress.done();
         spdlog::info("Alignment completed");
 
@@ -398,8 +398,8 @@ namespace align {
     }
 
     // ==================================================================
-    // 解析对齐后的参考序列为 CIGAR
-    // 功能：读取 MSA 结果，为每条序列生成 CIGAR（M/D 操作）
+    // Parse aligned reference sequences to CIGAR
+    // Function: read MSA results, generate CIGAR for each sequence (M/D operations)
     // ==================================================================
     void RefAligner::parseAlignedReferencesToCigar(
         const FilePath& aligned_fasta_path,
@@ -414,7 +414,7 @@ namespace align {
         std::size_t parsed_seq_count = 0;
 
         while (reader.next(rec)) {
-            // 第一条序列：记录 gap 位置
+            // First sequence: record gap positions
             if (parsed_seq_count == 0) {
                 out_ref_gap_pos.reserve(rec.seq.size());
                 for (const char base : rec.seq) {
@@ -422,7 +422,7 @@ namespace align {
                 }
             }
 
-            // 为当前序列生成 CIGAR（使用游程编码）
+            // Generate CIGAR for current sequence (using run-length encoding)
             cigar::Cigar_t cigar;
             cigar.reserve(20);
 
@@ -442,7 +442,7 @@ namespace align {
                 }
             }
 
-            // 收尾：写入最后一段
+            // Final: write last block
             if (current_op != '\0' && current_len > 0) {
                 cigar.push_back(cigar::cigarToInt(current_op, current_len));
             }
@@ -451,22 +451,22 @@ namespace align {
             ++parsed_seq_count;
         }
 
-        // 至少要有一条序列
+        // Must have at least one sequence
         if (parsed_seq_count == 0) {
             throw std::runtime_error(
-                "parseAlignedReferencesToCigar: 输入 FASTA 为空: " +
+                "parseAlignedReferencesToCigar: input FASTA is empty: " +
                 aligned_fasta_path.string());
         }
 
 #ifdef _DEBUG
-        spdlog::info("parseAlignedReferencesToCigar: 解析 {} 条序列，gap 位置数组长度 {}",
+        spdlog::info("parseAlignedReferencesToCigar: parsed {} sequences, gap position array length {}",
                     parsed_seq_count, out_ref_gap_pos.size());
 #endif
     }
 
     // ==================================================================
-    // 辅助函数：将 SAM 记录转换为 FASTA 并根据 CIGAR 调整
-    // 功能：单条 SAM 转 FASTA 的转换逻辑，支持 CIGAR 对齐
+    // Auxiliary function: convert SAM record to FASTA and adjust by CIGAR
+    // Function: single SAM to FASTA conversion logic, supports CIGAR alignment
     // ==================================================================
     void RefAligner::convertSamToFastaRecord(
         const seq_io::SamRecord& sam_rec,
@@ -474,21 +474,21 @@ namespace align {
         const std::unordered_map<std::string, cigar::Cigar_t>& ref_aligned_map,
         std::size_t estimated_final_length) const
     {
-        // 转换 SAM 为 FASTA
+        // Convert SAM to FASTA
         fasta_rec = seq_io::samRecordToSeqRecord(sam_rec, false);
 
-        // 预分配内存以提高性能
+        // Pre-allocate memory for performance
         if (fasta_rec.seq.capacity() < estimated_final_length) {
             fasta_rec.seq.reserve(estimated_final_length);
         }
 
-        // 根据 SAM 的 CIGAR 字段调整序列
+        // Adjust sequence by SAM CIGAR field
         if (!sam_rec.cigar.empty() && sam_rec.cigar != "*") {
             cigar::Cigar_t tmp_cigar = cigar::stringToCigar(sam_rec.cigar);
             cigar::padQueryToRefByCigar(fasta_rec.seq, tmp_cigar);
         }
 
-        // 根据参考序列的对齐信息进一步调整
+        // Further adjust by reference sequence alignment information
         auto it = ref_aligned_map.find(sam_rec.rname);
         if (it == ref_aligned_map.end()) {
             throw std::runtime_error(
@@ -498,15 +498,15 @@ namespace align {
     }
 
     // ==================================================================
-    // 辅助函数：处理插入序列文件
-    // 功能：读取含插入的 SAM，合并为 FASTA，执行可选 MSA
+    // Auxiliary function: process insertion sequence files
+    // Function: read SAM with insertions, merge to FASTA, execute optional MSA
     // ==================================================================
     FilePath RefAligner::processInsertionSequences(
         const FilePath& result_dir,
         const FilePath& aligned_insertion_fasta,
         std::unordered_map<std::string, cigar::Cigar_t>& ref_aligned_map) const
     {
-        // 收集插入 SAM 文件路径
+        // Collect insertion SAM file paths
         std::vector<FilePath> insertion_sam_paths(outs_with_insertion_path.begin(),
                                                    outs_with_insertion_path.end());
         spdlog::info("Collecting insertion SAM files: {} files", insertion_sam_paths.size());
@@ -521,7 +521,7 @@ namespace align {
 
         spdlog::info("Merged insertion sequences: {} records (including consensus)", total_sequences);
 
-        // 执行 MSA 或复制文件
+        // Execute MSA or copy file
         if (!keep_length) {
             spdlog::info("Running MSA on insertion sequences");
             alignConsensusSequence(insertion_fasta_path, aligned_insertion_fasta,
@@ -535,8 +535,8 @@ namespace align {
     }
 
     // ==================================================================
-    // 辅助函数：写入共识和参考序列
-    // 功能：从对齐文件读取并写入共识及参考序列
+    // Auxiliary function: write consensus and reference sequences
+    // Function: read from alignment file and write consensus and reference sequences
     // ==================================================================
     std::size_t RefAligner::writeConsensusAndReferences(
         seq_io::SeqWriter& final_writer,
@@ -561,8 +561,8 @@ namespace align {
     }
 
     // ==================================================================
-    // 辅助函数：写入插入序列
-    // 功能：从对齐的插入文件读取并写入序列（跳过第一条共识）
+    // Auxiliary function: write insertion sequences
+    // Function: read from aligned insertion file and write sequences (skip first consensus)
     // ==================================================================
     std::size_t RefAligner::writeInsertionSequences(
         seq_io::SeqWriter& final_writer,
@@ -578,13 +578,13 @@ namespace align {
         bool skip_first = true;
 
         while (insertion_reader.next(insertion_rec)) {
-            // 跳过共识序列（第一条）
+            // Skip consensus sequence (first)
             if (skip_first) {
                 skip_first = false;
                 continue;
             }
 
-            // 检查长度一致性
+            // Check length consistency
             if (!length_initialized) {
                 expected_length = insertion_rec.seq.size();
                 length_initialized = true;
@@ -606,8 +606,8 @@ namespace align {
     }
 
     // ==================================================================
-    // 辅助函数：处理单个 SAM 文件的批次
-    // 功能：读取 SAM 批次，并行转换为 FASTA，串行写入输出
+    // Auxiliary function: process batch of single SAM file
+    // Function: read SAM batch, parallel conversion to FASTA, serial write output
     // ==================================================================
     void RefAligner::processSamFileBatch(
         seq_io::SamReader& sam_reader,
@@ -627,7 +627,7 @@ namespace align {
 
         seq_io::SamRecord sam_rec;
         while (true) {
-            // 读取一个批次
+            // Read one batch
             sam_batch.clear();
             while (sam_batch.size() < batch_size && sam_reader.next(sam_rec)) {
                 sam_batch.push_back(sam_rec);
@@ -637,7 +637,7 @@ namespace align {
 
             const std::size_t current_batch_size = sam_batch.size();
 
-            // 并行转换 SAM 为 FASTA
+            // Parallel convert SAM to FASTA
             #pragma omp parallel for default(none) \
                 shared(sam_batch, fasta_batch, current_batch_size, ref_aligned_map, \
                        estimated_final_length) \
@@ -647,11 +647,11 @@ namespace align {
                                        ref_aligned_map, estimated_final_length);
             }
 
-            // 串行写入（确保顺序和长度检查）
+            // Serial write (ensure order and length check)
             for (std::size_t i = 0; i < current_batch_size; ++i) {
                 const seq_io::SeqRecord& fasta_rec = fasta_batch[i];
 
-                // 检查长度一致性
+                // Check length consistency
                 if (!length_initialized) {
                     expected_length = fasta_rec.seq.size();
                     length_initialized = true;
@@ -670,8 +670,8 @@ namespace align {
     }
 
     // ==================================================================
-    // 合并比对结果
-    // 功能：合并所有线程输出的 SAM 文件为最终 FASTA
+    // Merge alignment results
+    // Function: merge all thread output SAM files to final FASTA
     // ==================================================================
     void RefAligner::mergeAlignedResults(const FilePath output, std::size_t batch_size)
     {
@@ -682,7 +682,7 @@ namespace align {
         const FilePath consensus_aligned_file =
             FilePath(work_dir) / WORKDIR_DATA / DATA_CLEAN / CLEAN_CONS_ALIGNED;
 
-        // 1. 解析参考序列的对齐信息
+        // 1. Parse reference sequence alignment information
         std::unordered_map<std::string, cigar::Cigar_t> ref_aligned_map;
         std::unordered_map<std::string, cigar::Cigar_t> insertion_aligned_map;
         std::vector<bool> ref_gap_pos;
@@ -690,14 +690,14 @@ namespace align {
 
         parseAlignedReferencesToCigar(consensus_aligned_file, ref_aligned_map, ref_gap_pos);
 
-        // 2. 创建最终输出 writer
+        // 2. Create final output writer
         spdlog::info("Writing final MSA FASTA: {}", output.string());
         seq_io::SeqWriter final_writer(output, U_MAX);
 
-        // 3. 处理插入序列
+        // 3. Process insertion sequences
         processInsertionSequences(result_dir, aligned_insertion_fasta, ref_aligned_map);
 
-        // 4. 解析插入序列的对齐信息
+        // 4. Parse insertion sequence alignment information
         parseAlignedReferencesToCigar(aligned_insertion_fasta, insertion_aligned_map,
                                       insertion_ref_gap_pos);
         ref_aligned_map[consensus_seq.id] = insertion_aligned_map[consensus_seq.id];
@@ -709,14 +709,14 @@ namespace align {
         std::size_t seq_count = 0;
         bool length_initialized = false;
 
-        // 5. 写入共识和参考序列
+        // 5. Write consensus and reference sequences
         seq_count = writeConsensusAndReferences(final_writer, consensus_aligned_file, progress);
 
-        // 6. 写入插入序列
+        // 6. Write insertion sequences
         seq_count += writeInsertionSequences(final_writer, aligned_insertion_fasta,
                                             expected_length, length_initialized, progress);
 
-        // 7. 批处理 SAM 文件
+        // 7. Batch process SAM files
         constexpr std::size_t default_batch_size = 2560;
         const std::size_t effective_batch_size = (batch_size > 0) ? batch_size : default_batch_size;
         const std::size_t estimated_final_length = expected_length > 0 ? expected_length : 30000;
@@ -733,36 +733,36 @@ namespace align {
 
         final_writer.flush();
 
-        // 8. 完成
+        // 8. Finish
         progress.done();
         spdlog::info("Merge completed: {} sequences total, length {}",
                     seq_count, expected_length);
     }
 
     // ==================================================================
-    // 删除参考序列的 gap 列
-    // 功能：原地过滤，使用双指针优化性能
+    // Remove gap columns of reference sequences
+    // Function: in-place filtering, use two pointers for performance optimization
     // ==================================================================
     void RefAligner::removeRefGapColumns(
         std::string& seq,
         const std::vector<bool>& ref_gap_pos)
     {
-        // Fast-path：gap 标记为空时无需处理
+        // Fast-path: no processing needed when gap markers are empty
         if (ref_gap_pos.empty()) {
             return;
         }
 
 #ifdef _DEBUG
-        // Debug：检查长度一致性
+        // Debug: check length consistency
         if (seq.size() != ref_gap_pos.size()) {
             throw std::runtime_error(
-                "removeRefGapColumns: 序列长度不匹配 seq_len=" +
+                "removeRefGapColumns: sequence length mismatch seq_len=" +
                 std::to_string(seq.size()) +
                 ", ref_gap_pos_len=" + std::to_string(ref_gap_pos.size()));
         }
 #endif
 
-        // 原地过滤：使用双指针
+        // In-place filtering: use two pointers
         std::size_t write_pos = 0;
         const std::size_t n = seq.size();
 
@@ -772,7 +772,7 @@ namespace align {
             }
         }
 
-        // 截断多余部分
+        // Truncate excess part
         seq.resize(write_pos);
     }
 

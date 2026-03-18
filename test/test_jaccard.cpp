@@ -14,24 +14,24 @@
 // ------------------------------------------------------------
 // test_jaccard.cpp
 // ------------------------------------------------------------
-// 该测试文件专门验证两种 Jaccard 计算方式的正确性与性能：
+// This test file verifies correctness and performance of two Jaccard computations:
 // 1) mash::jaccard(const Sketch&, const Sketch&)
-//    - 这是精确的集合交集计数（要求 hashes 已经排序且 unique）。
+//    - exact set intersection count (requires hashes to be sorted and unique).
 // 2) mash::jaccard(const bloom_filter&, const Sketch&)
-//    - 这是用 Bloom Filter 近似集合成员查询得到的“交集估计”，会受 false positive 影响。
+//    - uses a Bloom Filter for approximate membership queries to estimate intersection; affected by false positives.
 //
-// 你要求的性能评估：
-// - 固定一个 ref（参考）sketch
-// - 构造 10000 个 query sketch（每个大小 2k）
-// - 评估：10000 次 "query vs ref" 的 jaccard 计算耗时
+// Performance evaluation requested:
+// - fix a reference sketch
+// - construct 10,000 query sketches (each size 2k)
+// - measure time for 10k "query vs ref" Jaccard computations
 //
-// 注意：性能用例默认跳过，避免 CI/普通测试耗时。
-// 需要时设置环境变量：HALIGN4_RUN_PERF=1
+// Note: perf cases are skipped by default to avoid slow CI/normal runs.
+// Enable with env var: HALIGN4_RUN_PERF=1
 // ------------------------------------------------------------
 
 namespace {
 
-// 生成随机 DNA 序列（A/C/G/T）。
+// Generate a random DNA sequence (A/C/G/T).
 static std::string random_dna(std::mt19937_64& rng, std::size_t len)
 {
     static constexpr char bases[4] = {'A', 'C', 'G', 'T'};
@@ -45,8 +45,8 @@ static std::string random_dna(std::mt19937_64& rng, std::size_t len)
 } // namespace
 
 TEST_SUITE("jaccard") {
-// 注意：某些环境下 doctest 的 TEST_SUITE 宏对换行/大括号位置较敏感，
-// 这里采用与本项目其他测试文件一致的写法。
+// Note: in some environments doctest's TEST_SUITE macro is sensitive to newline/brace placement,
+// so we use the same style as other test files in this project.
 
     TEST_CASE("Sketch-Sketch jaccard: basic correctness")
     {
@@ -75,7 +75,7 @@ TEST_SUITE("jaccard") {
 
         SUBCASE("partial overlap - uses min(|A|,|B|) denominator")
         {
-            // 交集=2, min size=3 => 2/3
+            // intersection=2, min size=3 => 2/3
             a.hashes = {1, 2, 3};
             b.hashes = {2, 3, 4, 5};
             CHECK(mash::jaccard(a, b) == doctest::Approx(2.0 / 3.0));
@@ -84,12 +84,12 @@ TEST_SUITE("jaccard") {
 
     TEST_CASE("Sketch-Sketch jaccard: sketchFromSequence identical sequences should be 1")
     {
-        // 如果你遇到“总是 0”的情况，最常见原因是：
-        // 1) sketch.hashes 没有排序/去重，导致 intersectionSizeSortedUnique 算法失效；
-        // 2) 两个 sketch 的 k 不一致（会抛异常）；
-        // 3) seed/noncanonical 参数不一致。
+        // If you see "always 0", the most common causes are:
+        // 1) sketch.hashes is not sorted/unique, breaking intersectionSizeSortedUnique
+        // 2) the two sketches have different k (throws exception)
+        // 3) seed/noncanonical parameters differ
         //
-        // 这个用例直接用相同序列、相同参数生成两个 sketch，jaccard 必须接近 1。
+        // This case generates two sketches from the same sequence and parameters; jaccard must be near 1.
         const std::size_t k = 21;
         const std::size_t sketch_size = 2000;
         const int seed = 42;
@@ -115,10 +115,10 @@ TEST_SUITE("jaccard") {
 
     TEST_CASE("Sketch-Sketch jaccard: similar sequences should usually be > 0")
     {
-        // 这个测试用来捕捉你描述的“经常只返回 0”。
-        // 说明：对于随机序列，k=21 且 sketch_size=2000 时，两个不同序列的交集通常非常小，
-        // 返回 0 其实是“正常现象”（底层 MinHash 交集为 0，表示估计的 Jaccard 很低）。
-        // 因此这里用“相似但不完全相同”的序列，确保应该存在共享 k-mer，从而 jaccard 不应为 0。
+        // This test is meant to catch the "often returns 0" behavior you described.
+        // Note: for random sequences with k=21 and sketch_size=2000, the intersection is typically tiny,
+        // so returning 0 is actually expected (MinHash intersection = 0 means estimated Jaccard is very low).
+        // Therefore we use sequences that are similar but not identical, so they should share k-mers and jaccard should not be 0.
 
         const std::size_t k = 21;
         const std::size_t sketch_size = 2000;
@@ -126,7 +126,7 @@ TEST_SUITE("jaccard") {
 
         std::string s1 = "ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT";
         std::string s2 = s1;
-        // 修改中间的一小段，保持大部分 k-mer 仍然相同
+        // Modify a small region in the middle while keeping most k-mers the same
         if (s2.size() >= 10) {
             s2[5] = 'T';
             s2[6] = 'T';
@@ -144,8 +144,8 @@ TEST_SUITE("jaccard") {
 
     TEST_CASE("BloomFilter-Sketch jaccard: exactness when FPP very small")
     {
-        // 这里我们设置极低的 false positive rate，
-        // 在测试规模较小的情况下，BloomFilter 查询几乎等价于精确集合包含。
+        // Here we set a very low false positive rate.
+        // At this small test scale, BloomFilter queries are almost equivalent to exact set membership.
         const std::size_t k = 21;
 
         mash::Sketch ref;
@@ -156,24 +156,24 @@ TEST_SUITE("jaccard") {
         q1.k = k;
         q1.hashes = {2, 3, 4, 5};
 
-        // 构建 bloom filter（极低误判率）
+        // build a bloom filter (very low false positive rate)
         const double fpp = 1e-9;
         const int seed = 12345;
         auto bf = mash::filterFromSketch(ref, fpp, seed);
 
-        // 由于 BloomFilter 会近似计算交集，所以我们只要求它“接近” Sketch-Sketch 的结果。
+        // Since BloomFilter approximates intersection, we only require it to be close to the Sketch-Sketch result.
         const double j_exact = mash::jaccard(ref, q1);
         const double j_bf = mash::jaccard(bf, q1);
 
-        // 在极小 fpp 下，结果应非常接近（允许极少量误差）。
+        // With a very small fpp, results should be very close (allowing tiny error).
         CHECK(j_bf == doctest::Approx(j_exact).epsilon(1e-6));
     }
 
     TEST_CASE("BloomFilter-Sketch jaccard: monotonic sanity (superset should not reduce) ")
     {
-        // BloomFilter 的误判只会让 contains 偏大（不会把 true 变 false），
-        // 所以对于同一个 BloomFilter：
-        // - 如果 query 增加更多元素（原来已有的仍包含），估计交集不应减少。
+        // BloomFilter false positives only make contains larger (never turn true into false),
+        // so for the same BloomFilter:
+        // - if the query adds more elements (while keeping existing ones), estimated intersection should not decrease.
         mash::Sketch ref;
         ref.k = 21;
         ref.hashes = {10, 20, 30, 40, 50};
@@ -203,24 +203,24 @@ TEST_SUITE("jaccard") {
             return;
         }
 
-        // 固定参数：每个 sketch 2k
+        // Fixed params: sketch size 2k
         const std::size_t k = 21;
         const std::size_t sketch_size = 2000;
-        const std::size_t seq_len = 300000;       // 默认 3w
-        const std::size_t num_queries = 10000;   // 1w
+        const std::size_t seq_len = 300000;       // default 300k
+        const std::size_t num_queries = 10000;   // 10k
         const int seed = 42;
 
         std::mt19937_64 rng(123456);
 
-        // 生成 ref
+        // generate ref
         const std::string ref_seq = random_dna(rng, seq_len);
         mash::Sketch ref = mash::sketchFromSequence(ref_seq, k, sketch_size, /*noncanonical*/true, seed);
         REQUIRE(ref.size() == ref.hashes.size());
 
-        // ref 的 bloom filter（用于加速 query vs ref 的近似 jaccard）
+        // ref's bloom filter (used to accelerate approximate jaccard for query vs ref)
         bloom_filter ref_bf = mash::filterFromSketch(ref, /*fpp*/1e-8, /*seed*/seed);
 
-        // 生成 query sketches（先生成序列再 sketch，保持测试更贴近真实 workload）
+        // generate query sketches (first generate sequences then sketch, to keep the test closer to real workload)
         std::vector<mash::Sketch> queries;
         queries.reserve(num_queries);
         for (std::size_t i = 0; i < num_queries; ++i)
@@ -229,7 +229,7 @@ TEST_SUITE("jaccard") {
             queries.emplace_back(mash::sketchFromSequence(qseq, k, sketch_size, /*noncanonical*/true, seed));
         }
 
-        // --- 性能测试 1：Sketch-Sketch ---
+        // --- perf test 1: Sketch-Sketch ---
         {
             volatile double sink = 0.0;
             auto t0 = std::chrono::steady_clock::now();
@@ -242,7 +242,7 @@ TEST_SUITE("jaccard") {
             MESSAGE("jaccard_perf Sketch-Sketch: queries=" << num_queries << " sketch_size=" << sketch_size << " took " << sec << " s" << " sink=" << sink);
         }
 
-        // --- 性能测试 2：BloomFilter-Sketch ---
+        // --- perf test 2: BloomFilter-Sketch ---
         {
             volatile double sink = 0.0;
             auto t0 = std::chrono::steady_clock::now();

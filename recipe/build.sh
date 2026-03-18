@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euxo pipefail
 
-# conda-build 环境下不要用 -march=native（可移植性灾难）
-# 若你按我建议在 CMakeLists 增加了 HALIGN4_NATIVE_ARCH 选项，这里保持 OFF
-# 同时也避免子项目被注入 native flags
+# Do not use -march=native in conda-build environment (portability disaster)
+# If you added HALIGN4_NATIVE_ARCH option in CMakeLists as suggested, keep it OFF here
+# Also avoid injecting native flags into sub-projects
 export CFLAGS="${CFLAGS} -O3"
 export CXXFLAGS="${CXXFLAGS} -O3"
 
@@ -19,6 +19,6 @@ cmake -S . -B build \
 
 cmake --build build -j "${CPU_COUNT}"
 
-# 你的工程目前没有 install() 规则，所以这里手动安装可执行文件
+# Your project currently has no install() rules, so manually install executables here
 install -d "${PREFIX}/bin"
 install -m 0755 build/halign4 "${PREFIX}/bin/halign4"

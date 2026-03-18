@@ -1,81 +1,81 @@
 #include "preprocess.h"
 #include <chrono>
-// 新增头文件，用于调用外部命令、构造字符串和检查文件存在性
+// Add a header file for calling external commands, constructing strings, and checking file existence.
 #include <cstdlib>
 #include <sstream>
 #include <filesystem>
 
-// 本文件包含输入 FASTA 的预处理逻辑：
-// - 将输入文件（可以是本地路径或 URL）获取到工作目录的 data/raw 下；
-// - 对序列做简单清洗（大写化，非 AGCTU 字符替换为 N）；
-// - 将清洗后的序列写入 data/clean 下；
-// - 维护一个 Top-K 选择器，选择长度最长的前 K 条序列（稳定保留较早出现的序列）；
-// - 最终把清洗后的数据与选中的 consensus 输出到指定文件（在此文件中只负责选择与写出接口，具体写出由调用者处理）。
+// This document contains the preprocessing logic for the FASTA input:
+// - The input file (which can be a local path or a URL) is retrieved to the data/raw directory in the working directory;
+// - Perform simple cleaning on the sequence (capitalize, replace non-AGCTU characters with N);
+// - Write the cleaned sequences to the data/clean directory;
+// - Maintain a Top-K selector to choose the longest K sequences (stably preserving earlier occurring sequences);
+// - Finally, output the cleaned data and selected consensus to the specified file (this file only handles selection and writing interfaces, with actual writing handled by the caller).
 
-// 解释：此处使用的 FilePath 为 file_io::FilePath（即 std::filesystem::path 的别名），
-// seq_io 命名空间封装了读取/写入 FASTA 的细节（openKseqReader / SeqWriter / SeqRecord 等）。
+// Explanation: The FilePath used here is file_io::FilePath (i.e., an alias for std::filesystem::path), which provides convenient path manipulation and is used throughout the codebase for file handling. The file_io namespace contains utility functions for file operations, such as checking if a path is a URL, ensuring directories exist, and handling file I/O errors. The preprocessInputFasta function will utilize these utilities to manage input files and directories effectively while performing the necessary preprocessing steps on the FASTA sequences.
+// The seq_io namespace encapsulates the details of reading/writing FASTA (openKseqReader / SeqWriter / SeqRecord, etc.).
 
 uint_t preprocessInputFasta(const std::string input_path, const std::string workdir, const int cons_n) {
-    // 参数说明：
-    // - input_path: 输入 FASTA 的路径或 URL（字符串）。
-    // - workdir: 工作目录路径（应当已经准备好或由调用方保证），在此目录下会创建 data/raw 和 data/clean 等子目录。
-    // - cons_n: 要保留的最长序列数量（Top-K）。
+    // Parameter description:
+    // - input_path: Enter the path or URL (string) of FASTA.
+    // - workdir: The working directory path (which should already be prepared or guaranteed by the caller). Subdirectories such as data/raw and data/clean will be created under this directory.
+    // - cons_n: The number of longest sequences to retain (Top-K).
 
-    // 计时用于日志记录，帮助性能分析
+    // Timing is used for logging and helps with performance analysis.
     const auto t_start = std::chrono::steady_clock::now();
 
     spdlog::info("Preprocessing input FASTA file: {}", input_path);
     spdlog::info("Working directory: {}", workdir);
 
-    // ---------- 目录准备 ----------
-    // 1) 确保工作目录下存在 data 文件夹。
-    //    该目录用于存放原始与清洗后的数据：data/raw 和 data/clean。
+    // ---------- Catalog preparation ----------
+    // 1) Ensure a "data" directory exists under the working directory.
+    //    This directory stores both raw and cleaned data: data/raw and data/clean.
     FilePath data_dir = FilePath(workdir) / WORKDIR_DATA;
     file_io::ensureDirectoryExists(data_dir);
     spdlog::info("Ensured data directory exists: {}", data_dir.string());
 
-    // 2) 在 data 下创建 raw_data 文件夹，用于保存原始（未清洗）输入。
+    // 2) Create the raw_data directory under data for storing the original (uncleaned) input.
     FilePath raw_data_dir = data_dir / DATA_RAW;
     file_io::ensureDirectoryExists(raw_data_dir);
     spdlog::info("Ensured raw data directory exists: {}", raw_data_dir.string());
 
-    // 3) 在 data 下创建 clean_data 文件夹，用于保存清洗后的输出。
+    // 3) Create the clean_data directory under data for storing cleaned output.
     FilePath clean_data_dir = data_dir / DATA_CLEAN;
     file_io::ensureDirectoryExists(clean_data_dir);
     spdlog::info("Ensured clean data directory exists: {}", clean_data_dir.string());
 
     // ========================================================================
-    // 获取输入文件（支持本地/远程，性能优化）
+    // Fetch input file (supports local/remote with performance optimization)
     // ========================================================================
-    // 核心优化：
-    // - 远程文件（URL）：下载到 raw_data 目录（需要本地缓存）
-    // - 本地文件：直接读取原始路径（避免不必要的复制开销）
+    // Key optimizations:
+    // - Remote file (URL): download into raw_data directory (requires local cache)
+    // - Local file: read directly from original path (avoids unnecessary copy overhead)
     //
-    // 性能影响：
-    // - 本地大文件（例如 10GB FASTA）：从数分钟复制时间减少到 0 秒
-    // - 远程文件：保持原有逻辑（必须下载到本地）
-    // - 内存占用：无影响（都是流式读取）
+    // Performance impact:
+    // - Large local files (e.g., 10GB FASTA): reduces minutes of copy time to 0 seconds
+    // - Remote files: retains existing logic (must be downloaded locally)
+    // - Memory usage: unaffected (streamed reads in all cases)
     // ========================================================================
     FilePath input_file = FilePath(input_path);
-    FilePath actual_input_file;  // 实际读取的文件路径
+    FilePath actual_input_file;  // actual file path used for reading
 
     if (file_io::isUrl(input_file)) {
-        // 远程文件：下载到 raw_data 目录
+        // Remote file: download into raw_data directory
         FilePath raw_dest_file = raw_data_dir / input_file.filename();
 
         spdlog::info("Detected remote URL, downloading to: {} -> {}",
                      input_file.string(), raw_dest_file.string());
 
-        // fetchFile 内部会调用 downloadFile
+        // fetchFile internally calls downloadFile
         file_io::fetchFile(input_file, raw_dest_file);
 
         spdlog::info("Download completed: {}", raw_dest_file.string());
         actual_input_file = raw_dest_file;
     } else {
-        // 本地文件：直接使用原始路径，不复制
+        // Local file: use original path directly without copying
         spdlog::info("Detected local file, reading directly from: {}", input_file.string());
 
-        // 验证文件存在性与可读性（失败时抛出异常）
+        // Verify file exists and is readable (throws on failure)
         file_io::requireRegularFile(input_file, "input file");
 
         actual_input_file = input_file;
@@ -83,9 +83,9 @@ uint_t preprocessInputFasta(const std::string input_path, const std::string work
         spdlog::info("Local file verified, no copy needed (performance optimization)");
     }
 
-    // ---------- 准备输出文件名 ----------
-    // 5) 打开 raw 文件并逐条读取；对每条序列进行清洗（cleanSequence），写入 clean_data
-    //    同时维护 TopKLongestSelector，选择最长的 cons_n 条序列（用于之后的 consensus 生成）。
+    // ---------- Prepare output file names ----------
+    // 5) Open the raw input and read records one-by-one; clean each sequence (cleanSequence) and write to clean_data.
+    //    At the same time maintain a TopKLongestSelector to pick the longest cons_n sequences (for later consensus generation).
     // handle input filenames like `sample.fasta.gz` -> `sample.fasta`
     FilePath in_fname = input_file.filename();
     std::string in_name = in_fname.string();
@@ -99,69 +99,69 @@ uint_t preprocessInputFasta(const std::string input_path, const std::string work
     FilePath consensus_file = clean_data_dir / CLEAN_CONS_UNALIGNED;
     spdlog::info("Clean output: {} ; Consensus output: {}", clean_dest_file.string(), consensus_file.string());
 
-    // ---------- 打开 reader/writer 与 TopK 选择器 ----------
-    // seq_io::openKseqReader 返回一个 reader 指针（抽象），用于逐条读取序列；
-    // seq_io::SeqWriter 用于把清洗后的序列写入到目标文件。
+    // ---------- Open reader/writer and TopK selector ----------
+    // seq_io::openKseqReader returns an abstract reader pointer for reading sequences one-by-one;
+    // seq_io::SeqWriter is used to write cleaned sequences to the target file.
     //
-    // 说明：actual_input_file 可能是：
-    // 1. 远程文件：raw_data 目录下的下载文件
-    // 2. 本地文件：用户提供的原始路径（无需复制，性能优化）
+    // Note: actual_input_file may be:
+    // 1. A remote file: the downloaded file under raw_data
+    // 2. A local file: the original path provided by the user (no copy needed, performance optimized)
     auto reader = seq_io::openKseqReader(actual_input_file);
     seq_io::SeqWriter clean_writer(clean_dest_file);
     TopKLongestSelector selector(cons_n);
 
-    // 处理循环：读取 -> 清洗 -> 写出 -> 交给 TopK 选择器
+    // Processing loop: read -> clean -> write -> submit to TopK selector
     seq_io::SeqRecord rec;
     std::size_t total_records = 0;
 
-    // 使用 ProgressBar 类替代手动进度条实现，减少代码冗余
+    // Use ProgressBar class instead of manual progress printing to reduce boilerplate
     ProgressBar progress("preprocess");
 
-    // 重要说明（性能与正确性）：
-    // - 该循环为预处理的热路径，若输入很大（成千上万 / 几百万条序列），要关注 IO 与内存占用。
-    // - 性能优化点：
-    //    * 使用 seq_io 的 KseqReader（基于 fread/gzread）并配合大缓冲可以显著提升读取吞吐；
-    //    * SeqWriter::write 会把一条记录的 header 与折行后的序列缓存在临时字符串中并一次性写出，
-    //      避免逐字符写入带来的系统调用开销；这对写大文件非常重要；
-    //    * TopKLongestSelector 应该实现为维护一个大小为 K 的最小堆，插入/替换成本为 O(log K)，适合 K 远小于记录总数的场景；
-    // - 内存权衡：TopK 的实现会保留 K 条完整记录（占用内存 O(K * avg_len)），若 K 很大需注意内存使用。
+    // Important notes (performance and correctness):
+    // - This loop is the hot path for preprocessing. For large inputs (tens of thousands / millions of records), watch IO and memory usage.
+    // - Performance optimizations:
+    //    * Use seq_io's KseqReader (based on fread/gzread) with a large buffer to significantly improve read throughput.
+    //    * SeqWriter::write buffers a record's header and wrapped sequence into a temporary string and writes it in one shot,
+    //      avoiding per-character writes and the associated system-call overhead; this is important for large files.
+    //    * TopKLongestSelector should be implemented as a min-heap of size K, with insert/replace cost O(log K), which is suitable when K is much smaller than total record count.
+    // - Memory trade-off: the TopK implementation keeps K full records (using O(K * avg_len) memory); if K is large, watch memory usage.
     while (reader->next(rec)) {
         ++total_records;
-        // 对序列进行规范化清洗：例如把字母转为大写，非 AGCTU 替换为 N（具体实现由 seq_io::cleanSequence 提供）。
-        // cleanSequence 就地修改 rec.seq，尽量避免重复复制以节省内存带宽。
+        // Normalize and clean the sequence: e.g., uppercase letters and replace non-AGCTU characters with N (implemented by seq_io::cleanSequence).
+        // cleanSequence modifies rec.seq in place, avoiding repeated copies to save memory bandwidth.
         seq_io::cleanSequence(rec.seq);
 
-        // 将清洗后的记录写入 clean_data 文件夹
-        // 注：FastaWriter::write 已经在内部做了拼接与一次性写出的优化，性能友好。
+        // Write the cleaned record to the clean_data directory
+        // Note: FastaWriter::write already optimizes by concatenating and writing in one shot, which is performance-friendly.
         clean_writer.write(rec);
 
-        // 将当前记录交给 TopK 选择器进行考虑（内部维护堆以保证 O(log K) 的替换成本）
-        // 注意：selector.consider 应复制或接管必要的字段（例如 id/seq），以免后续 rec 被复用/覆盖导致数据错误。
+        // Submit the current record to the TopK selector (internally maintains a heap for O(log K) replacement cost)
+        // Note: selector.consider should copy or take ownership of needed fields (e.g., id/seq) to avoid data corruption when rec is reused/overwritten.
         selector.consider(rec);
 
-        // 使用 ProgressBar::tick() 更新进度，内部自动判断是否需要刷新
+        // Update progress via ProgressBar::tick(); it decides internally whether to refresh.
         progress.tick();
     }
-    progress.done();  // 强制输出最终状态并换行
+    progress.done();  // force final status output and newline
 
-    // ---------- 将 TopK 结果写成共识输入文件 ----------
-    // 说明：takeSortedDesc 返回按长度降序排序的记录列表（一般用于选取最长的 N 条序列作为共识计算输入）
+    // ---------- Write TopK results to consensus input file ----------
+    // Note: takeSortedDesc returns records sorted by length in descending order (typically used to select the longest N sequences for consensus generation)
     seq_io::SeqWriter cons_writer(consensus_file);
     auto cons_seqs = selector.takeSortedDesc();
 
-    // 将选出的序列写到 consensus 文件；注意保持一致的换行宽度等格式规则，SeqWriter 负责这些细节。
+    // Write the selected sequences to the consensus file; keep consistent line-wrapping rules, which SeqWriter handles.
     for (const auto& cons_rec : cons_seqs) {
-        // 这里写出的 cons_rec 应该是一个深拷贝的 SeqRecord（由 selector 返回以保证安全），如果不是需要在 selector 中做拷贝。
+        // The cons_rec written here should be a deep-copied SeqRecord (returned by selector to ensure safety); if not, make a copy in selector.
         cons_writer.write(cons_rec);
     }
 
-    // ---------- 统计与返回值 ----------
+    // ---------- Stats and return value ----------
     const auto t_end = std::chrono::steady_clock::now();
     const double elapsed_s = std::chrono::duration_cast<std::chrono::duration<double>>(t_end - t_start).count();
 
     spdlog::info("Preprocessing completed. Total records processed: {}. Selected top {} sequences: {}. Elapsed: {:.2f} s",
                  total_records, cons_n, cons_seqs.size(), elapsed_s);
-    // 将 size_t 转为项目级别的 uint_t（在 config.hpp 中定义）；防止溢出则截断到 U_MAX
+    // Convert size_t to the project-level uint_t (defined in config.hpp); truncate to U_MAX to prevent overflow
     if (total_records > static_cast<std::size_t>(U_MAX)) {
         spdlog::warn("Processed records ({}) exceed U_MAX ({}); truncating to U_MAX", total_records, U_MAX);
         return static_cast<uint_t>(U_MAX);
@@ -175,13 +175,13 @@ void alignConsensusSequence(const FilePath& input_file, const FilePath& output_f
                             const std::string& msa_cmd, int threads)
 {
 
-    // 检查输入文件是否存在
+    // Check that the input file exists
     if (!std::filesystem::exists(input_file)) {
         spdlog::warn("Consensus unaligned file not found: {}", input_file.string());
         return;
     }
 
-    // 记录开始时间
+    // Record start time
     const auto t_start = std::chrono::steady_clock::now();
 
     spdlog::info("Starting consensus alignment");
@@ -190,7 +190,7 @@ void alignConsensusSequence(const FilePath& input_file, const FilePath& output_f
     spdlog::info("  tool  : {}", msa_cmd);
     spdlog::info("  thrs  : {}", threads);
 
-    // 尝试记录输入文件大小（若可访问）
+    // Try logging the input file size (if accessible)
     try {
         if (std::filesystem::exists(input_file)) {
             auto in_size = std::filesystem::file_size(input_file);
@@ -200,13 +200,13 @@ void alignConsensusSequence(const FilePath& input_file, const FilePath& output_f
         spdlog::warn("Failed to stat input file {}: {}", input_file.string(), e.what());
     }
 
-    // 组装命令。默认把 -i / -o / -t 作为参数传入，便于未来统一替换为 cmd 模块的调用。
+    // Build the command. By default, pass -i / -o / -t parameters so it can be swapped later for a cmd module interface.
     cmd::BuildOptions build_opt;
     const std::string cmd_str = cmd::buildCommand(msa_cmd,input_file.string(),output_file.string(),threads, build_opt);
     spdlog::info("Built MSA command (length {}): {}", cmd_str.size(), cmd_str);
     spdlog::info("MSA command (escaped): {}", cmd_str);
 
-    // 调用外部命令（当前使用 std::system；若以后替换为项目内 cmd 接口，只需修改此处）
+    // Invoke external command (currently using std::system; swap to internal cmd interface if desired later)
     try {
         const auto cmd_start = std::chrono::steady_clock::now();
         int rc = cmd::runCommand(cmd_str);
@@ -219,7 +219,7 @@ void alignConsensusSequence(const FilePath& input_file, const FilePath& output_f
             spdlog::info("MSA command exited with code 0 (success). Elapsed: {:.3f} s", cmd_elapsed);
         }
 
-        // 检查输出文件
+        // Check output file
         try {
             if (std::filesystem::exists(output_file)) {
                 auto out_size = std::filesystem::file_size(output_file);

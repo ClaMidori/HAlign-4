@@ -149,15 +149,15 @@ TEST_SUITE("mash")
         auto sk = mash::sketchFromSequence(s, k, sketch_size);
         CHECK(sk.k == k);
 
-        // 检查有序
+        // Check in order
         CHECK(std::is_sorted(sk.hashes.begin(), sk.hashes.end()));
 
-        // 检查无重复
+        // Check for duplicates
         CHECK(std::adjacent_find(sk.hashes.begin(), sk.hashes.end()) == sk.hashes.end());
     }
 
-    // 参考实现：暴力计算所有 k-mer（rolling 2-bit + getHash2bit），
-    // 取 canonical/noncanonical 后生成完整 hash 列表，最后 sort+unique 并取前 sketch_size。
+    // Reference implementation: brute-force calculation of all k-mers (rolling 2-bit + getHash2bit)，
+    // After retrieving canonical/noncanonical values, a complete hash list is generated. Finally, sort and unique values ​​are used, and the first sketch_size is taken.
     static std::vector<hash_t> reference_bottom_k(const std::string& seq,
                                                   std::size_t k,
                                                   std::size_t sketch_size,
@@ -224,7 +224,7 @@ TEST_SUITE("mash")
 
     TEST_CASE("sketchFromSequence - handles invalid chars by resetting window")
     {
-        // 中间插入 N：跨过 N 的 k-mer 不应产生（窗口会重置）
+        // Inserting N in the middle: k-mers that cross N should not be generated (the window will reset).
         const std::string s = "ACGTACGTNNNNACGTACGT";
         const std::size_t k = 5;
         const std::size_t sketch_size = 200;
@@ -239,7 +239,7 @@ TEST_SUITE("mash")
 
     TEST_CASE("sketchFromSequence - canonical differs from noncanonical on non-palindrome")
     {
-        // 选一个明显非回文的序列，canonical 与 noncanonical 通常会不一样（并不保证必须不同，但很大概率）。
+        // Choose a sequence that is clearly non-palindromic. The canonical and noncanonical sequences will usually be different (it is not guaranteed that they must be different, but it is very likely).
         const std::string s = "ACGTTGCAACGTTGCAACGTTGCA";
         const std::size_t k = 7;
         const std::size_t sketch_size = 100;
@@ -251,11 +251,11 @@ TEST_SUITE("mash")
         CHECK(std::is_sorted(sk_nc.hashes.begin(), sk_nc.hashes.end()));
         CHECK(std::is_sorted(sk_can.hashes.begin(), sk_can.hashes.end()));
 
-        // 至少确保两个结果都符合 bottom-k 参考
+        // Ensure at least two results conform to the bottom-k reference. This also indirectly checks that the seed is correctly passed to getHash2bit.
         CHECK(sk_nc.hashes == reference_bottom_k(s, k, sketch_size, true, seed));
         CHECK(sk_can.hashes == reference_bottom_k(s, k, sketch_size, false, seed));
 
-        // “通常”两者不同：用 CHECK_FALSE 可能导致偶发失败，所以这里只做 INFO 输出。
+        // The two are different: using CHECK_FALSE may cause occasional failures, so only INFO output is done here.
         DOCTEST_INFO("noncanonical size=", sk_nc.hashes.size(), "; canonical size=", sk_can.hashes.size());
     }
 }
