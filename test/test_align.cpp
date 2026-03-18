@@ -462,7 +462,6 @@ TEST_CASE("cigar::stringToCigar - 错误处理") {
     // Test 4: length is 0
             CHECK_THROWS_AS(cigar::stringToCigar("0M"), std::runtime_error);
         }
-    }
 
     // ------------------------------------------------------------------
 // Test: stringToCigar robustness
@@ -489,7 +488,6 @@ TEST_CASE("cigar::stringToCigar - 容错性") {
             CHECK(len == 3);
         }
     }
-}
 
 // ------------------------------------------------------------------
 // Performance test suite
