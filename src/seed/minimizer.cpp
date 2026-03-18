@@ -11,8 +11,8 @@
 
 namespace minimizer
 {
-    // splitmix64：非常常用的 64-bit mixer，速度快且分布不错。
-    // 在 minimap2 里也会对 k-mer 编码做 hash64 混洗，理念相同。
+    // splitmix64: widely-used 64-bit mixer with good speed and distribution.
+    // minimap2 also applies hash64 mixing to k-mer encoding with same concept.
     static inline constexpr std::uint64_t splitmix64(std::uint64_t x) noexcept
     {
         x += 0x9e3779b97f4a7c15ULL;
@@ -21,8 +21,8 @@ namespace minimizer
         return x ^ (x >> 31);
     }
 
-    // Cand：窗口中的候选 (hash, pos)
-    // pos 是 k-mer 的起始位置（0-based）
+    // Cand: candidate (hash, pos) in window
+    // pos is k-mer start position (0-based)
     struct Cand
     {
         std::uint64_t h;
@@ -30,7 +30,7 @@ namespace minimizer
     };
 
     // =========================================================
-    // RingMinQueue：固定容量的“环形单调队列”（维护窗口最小值）
+    // RingMinQueue: fixed-capacity ring monotonic queue (maintains window minimum)
     // =========================================================
     class RingMinQueue
     {
@@ -51,7 +51,7 @@ namespace minimizer
         void push(std::uint64_t h, std::uint32_t pos) noexcept
         {
             const Cand c{h, pos};
-            // 弹出所有 >= 当前 hash 的队尾元素，保持单调递增。
+            // Pop all elements >= current hash from back to maintain monotonic order
             while (size_ && back().h >= c.h) pop_back();
             buf_[idx(size_)] = c;
             ++size_;
@@ -98,7 +98,7 @@ namespace minimizer
 
 
     // =============================================================
-    // 目标：从单条序列中提取 minimizer（带位置 hit）。
+    // Goal: extract minimizers (with position hits) from single sequence
     // =============================================================
     MinimizerHits extractMinimizer(const std::string& seq,
                                    std::size_t k,
@@ -152,7 +152,7 @@ namespace minimizer
 
             const std::uint64_t code = non_canonical ? fwd : std::min(fwd, rev);
             const std::uint64_t h64 = splitmix64(code);
-            const std::uint64_t h56 = (h64 >> 8); // 取高 56bit，留出低 8bit 给 span
+            const std::uint64_t h56 = (h64 >> 8); // Extract high 56 bits, reserve low 8 bits for span
 
             q.push(h56, pos);
 
@@ -178,71 +178,71 @@ namespace minimizer
 
 
 // ------------------------------------------------------------------
-// 函数：collect_anchors
+// Function: collect_anchors
 // ------------------------------------------------------------------
-// 功能：
-// 从 ref_hits 和 qry_hits 中收集锚点（Anchor）列表。
+// Purpose:
+// Collect anchor list (Anchor) from ref_hits and qry_hits.
 //
-// 这里的“锚点”含义：
-// - 一个锚点表示：ref 与 query 在某个 minimizer hash 上发生了匹配；
-// - 因为同一个 hash 在参考/查询中可能出现多次，所以一个 qry_hit 可能会展开为多个 anchors。
-// - anchors 是后续 chaining（链化）的输入。
+// Anchor semantics here:
+// - One anchor represents: ref and query match on a minimizer hash;
+// - Since same hash may appear multiple times in ref/query, one qry_hit may expand to multiple anchors.
+// - Anchors are input for subsequent chaining.
 //
-// 设计与 minimap2 对齐的关键点（非常重要）：
-// 1) 先统计/过滤，再展开（occurrence expansion）
-//    - minimap2 的 -f/-U/--q-occ-frac/-e 等策略，本质是在“展开 occurrences 前”抑制重复区域。
-//    - 如果不这么做，重复区域会让一个高频 minimizer 展开成 O(occ_ref * occ_qry) 个 anchors，
-//      直接导致内存/时间爆炸。
+// Key design points aligned with minimap2 (very important):
+// 1) Filter first, then expand (occurrence expansion)
+//    - minimap2's -f/-U/--q-occ-frac/-e strategies suppress repeat regions "before expanding occurrences".
+//    - Without this, repeat regions would expand high-frequency minimizer to O(occ_ref * occ_qry) anchors,
+//      directly causing memory/time explosion.
 //
-// 2) 本实现的过滤参数来自 anchor::SeedFilterParams（默认值模仿 minimap2 CLI 默认）：
-//    - f_top_frac（-f）：忽略参考端最频繁的 top fraction minimizers（按 distinct 计数）
-//    - u_floor/u_ceil（-U）：对 occurrence 阈值做上下限夹逼
-//    - q_occ_frac（--q-occ-frac）：query 端过于高频（并且高于 reference 阈值）则丢弃
-//    - sample_every_bp（-e）：对高频 minimizer 做位置稀疏采样（而不是全部展开）
+// 2) This implementation's filter parameters come from anchor::SeedFilterParams (defaults mimic minimap2 CLI):
+//    - f_top_frac (-f): ignore most frequent top fraction minimizers in reference (by distinct count)
+//    - u_floor/u_ceil (-U): bound occurrence threshold with upper/lower limits
+//    - q_occ_frac (--q-occ-frac): discard if query-side too frequent (and exceeds reference threshold)
+//    - sample_every_bp (-e): sparse position sampling for high-frequency minimizers (not full expansion)
 //
-// 3) 输出 anchors 未排序：
-//    - minimap2 后续会按 (rid, strand, diagonal, ref_pos, qry_pos) 排序再进行 DP chaining。
-//    - 这里仅负责收集，排序由调用方（anchor::sortAnchorsByDiagonal 等）完成。
+// 3) Output anchors are unsorted:
+//    - minimap2 later sorts by (rid, strand, diagonal, ref_pos, qry_pos) before DP chaining.
+//    - This only collects; sorting is done by caller (anchor::sortAnchorsByDiagonal etc).
 //
-// 输入：
-// - ref_hits：reference 的 minimizer hits（可能来自全参考、或某段参考）
-// - qry_hits：query 的 minimizer hits
+// Input:
+// - ref_hits: reference minimizer hits (may be from full reference or portion)
+// - qry_hits: query minimizer hits
 //
-// 输出：
-// - anchor::Anchors：Anchor 列表（每个元素都记录 ref/qry 的 rid/pos/span/is_rev）
+// Output:
+// - anchor::Anchors: anchor list (each records ref/qry rid/pos/span/is_rev)
 //
-// 复杂度：
-// - 排序 ref_hits：O(R log R)
-// - 统计 qry occurrence：O(Q)
-// - 生成 anchors：O(Q * avg_occ_ref_for_hash)
-//   （重复区域会被过滤/稀疏，避免最坏情况爆炸）
+// Complexity:
+// - Sort ref_hits: O(R log R)
+// - Count qry occurrences: O(Q)
+// - Generate anchors: O(Q * avg_occ_ref_for_hash)
+//   (repeat regions filtered/sparse-sampled, avoids worst-case explosion)
 // ------------------------------------------------------------------
 anchor::Anchors collect_anchors(const MinimizerHits& ref_hits, const MinimizerHits& qry_hits, anchor::SeedFilterParams params)
 {
     anchor::Anchors anchors;
 
-    // 边界条件：任意一侧为空则不可能产生锚点
+    // Boundary condition: if either side is empty, cannot produce anchors
     if (ref_hits.empty() || qry_hits.empty()) {
         return anchors;
     }
 
 
     // ------------------------------------------------------------------
-    // Step 1：对 ref_hits 排序 + 构建 hash -> (start, count) 索引
+    // Step 1: sort ref_hits + build hash -> (start, count) index
     // ------------------------------------------------------------------
-    // 说明：
-    // - ref_hits 里同一个 hash 可能出现多次（不同位置/不同 rid）。
-    // - 将其按 (hash, rid, pos, strand) 排序后，同一 hash 的 hits 会变成连续区间。
-    // - 我们用一个 unordered_map 保存每个 hash 对应的连续区间 (start, count)，
-    //   这样 qry 端查到一个 hash 后，就可以 O(occ_ref) 展开。
+    // Note:
+    // - Same hash may appear multiple times in ref_hits (different positions/rids).
+    // - After sorting by (hash, rid, pos, strand), hits of same hash become contiguous.
+    // - We use unordered_map to store contiguous interval (start, count) for each hash;
+    //   when query finds a hash, can expand in O(occ_ref) time.
     std::vector<minimizer::MinimizerHit> sorted_ref = ref_hits;
-    std::sort(sorted_ref.begin(), sorted_ref.end()); // 使用 SeedHitBase 的 operator<
+    std::sort(sorted_ref.begin(), sorted_ref.end()); // Use SeedHitBase's operator<
 
     std::unordered_map<hash_t, anchor::HashIndex> hash_index;
     hash_index.reserve(sorted_ref.size());
 
-    // ref_occs：记录每个 distinct hash 在 reference 的出现次数（occurrence），
-    // 用于后续根据 -f（top fraction）估算过滤阈值。
+    // ref_occs: record occurrence count of each distinct hash in reference,
+    // used later to estimate filter threshold based on -f (top fraction)
     std::vector<std::size_t> ref_occs;
     ref_occs.reserve(sorted_ref.size() / 2 + 1);
 
@@ -251,7 +251,7 @@ anchor::Anchors collect_anchors(const MinimizerHits& ref_hits, const MinimizerHi
         hash_t current_hash = sorted_ref[0].hash();
 
         for (std::size_t i = 1; i <= sorted_ref.size(); ++i) {
-            // 遇到 hash 变化或到达末尾 => 结算上一段 hash 的区间
+            // When hash changes or reach end => finalize interval for previous hash
             if (i == sorted_ref.size() || sorted_ref[i].hash() != current_hash) {
                 const std::size_t occ = i - start;
                 hash_index[current_hash] = anchor::HashIndex{start, occ};
@@ -265,48 +265,48 @@ anchor::Anchors collect_anchors(const MinimizerHits& ref_hits, const MinimizerHi
     }
 
     // ------------------------------------------------------------------
-    // Step 2：根据 ref_occs + (-f/-U) 计算“参考端高频阈值”
+    // Step 2: compute "reference-side high-frequency threshold" from ref_occs + (-f/-U)
     // ------------------------------------------------------------------
-    // 该阈值用于判断某个 hash 是否属于重复区域（高频）。
-    // 注意：这是“过滤发生在展开 occurrences 前”的关键点。
+    // This threshold determines if a hash belongs to repeat region (high-frequency).
+    // Note: this is key point of "filtering happens before occurrence expansion".
     const std::size_t ref_occ_thr = anchor::compute_ref_occ_threshold(ref_occs, params);
 
     // ------------------------------------------------------------------
-    // Step 3：统计 query 端每个 hash 的 occurrence（用于 --q-occ-frac）
+    // Step 3: count occurrence of each hash on query side (for --q-occ-frac)
     // ------------------------------------------------------------------
-    // minimap2 的直觉：
-    // - 如果某个 hash 在 query 里也极其高频，那么它很可能来自低复杂度/重复区域
-    // - 这些 seeds 对定位帮助不大，却会产生大量 anchors
+    // minimap2's intuition:
+    // - If a hash is extremely high-frequency in query, likely from low-complexity/repeat region
+    // - These seeds don't help much with localization but produce many anchors
     std::unordered_map<hash_t, std::size_t> qry_occ;
     qry_occ.reserve(qry_hits.size());
     for (const auto& qh : qry_hits) {
         ++qry_occ[qh.hash()];
     }
 
-    // q_occ_limit：把 --q-occ-frac 从“比例”变成“数量阈值”
+    // q_occ_limit: convert --q-occ-frac from "ratio" to "count threshold"
     const double q_occ_limit = params.q_occ_frac > 0.0
         ? (params.q_occ_frac * static_cast<double>(qry_hits.size()))
         : std::numeric_limits<double>::infinity();
 
-    // 预估：通常 anchors 数量与 qry_hits 同量级（重复会被压制）
+    // Estimate: anchor count usually same order as qry_hits (repeats suppressed)
     anchors.reserve(qry_hits.size());
 
     // ------------------------------------------------------------------
-    // Step 4：遍历 qry_hits，查 ref 索引并生成 anchors
+    // Step 4: iterate qry_hits, query ref index and generate anchors
     // ------------------------------------------------------------------
     for (const auto& qry_hit : qry_hits) {
         const hash_t qry_hash = qry_hit.hash();
 
-        // ref 端不存在该 hash => 无法形成锚点
+        // Hash doesn't exist on ref side => cannot form anchor
         auto it = hash_index.find(qry_hash);
         if (it == hash_index.end()) continue;
 
         const anchor::HashIndex& idx = it->second;
         const std::size_t ref_occ = idx.count;
 
-        // ---- 4.1 --q-occ-frac：query 端过于高频时直接丢弃（降低爆炸风险）
-        // minimap2 语义：当 query 端某个 hash 出现次数超过阈值时，直接丢弃该 hash
-        // 这是独立于 ref 端过滤的机制，用于应对 query 端的低复杂度区域
+        // ---- 4.1 --q-occ-frac: discard if query-side too high-frequency (reduce explosion risk)
+        // minimap2 semantics: when query hash occurrence exceeds threshold, discard that hash
+        // This independent from ref-side filtering, handles low-complexity regions in query
         if (params.q_occ_frac > 0.0) {
             const std::size_t qocc = qry_occ[qry_hash];
             if (static_cast<double>(qocc) > q_occ_limit) {
@@ -314,14 +314,14 @@ anchor::Anchors collect_anchors(const MinimizerHits& ref_hits, const MinimizerHi
             }
         }
 
-        // ---- 4.2 -f/-U + -e：reference 端高频 minimizer 采用稀疏采样
-        // 语义：
-        // - 如果 ref_occ > ref_occ_thr，说明该 hash 在参考中非常“重复”。
-        // - minimap2 会对高频 minimizer 进行稀疏/筛选，避免把所有 occurrences 展开。
-        // - 我们这里用最简单的“按 query 位置取模采样”的方式来近似 -e 行为：
-        //   仅当 qry_hit.pos % sample_every_bp == 0 时才展开。
+        // ---- 4.2 -f/-U + -e: reference-side high-frequency minimizers use sparse sampling
+        // Semantics:
+        // - If ref_occ > ref_occ_thr, this hash is very "repeated" in reference.
+        // - minimap2 sparsely samples high-frequency minimizers instead of expanding all occurrences.
+        // - We use simplest "modulo sampling by query position" to approximate -e behavior:
+        //   only expand when qry_hit.pos % sample_every_bp == 0.
         //
-        // 注意：这不是唯一实现方式，但可保持“热点路径不爆炸”的关键特性。
+        // Note: not unique implementation, but maintains key property of "hotpath not exploding".
         if (ref_occ > ref_occ_thr) {
             if (params.sample_every_bp == 0) continue;
             if ((static_cast<std::size_t>(qry_hit.pos()) % params.sample_every_bp) != 0) {
@@ -329,8 +329,8 @@ anchor::Anchors collect_anchors(const MinimizerHits& ref_hits, const MinimizerHi
             }
         }
 
-        // ---- 4.3 展开 reference 的 occurrences，生成 anchors
-        // 生成时只做字段拷贝/轻量计算，避免额外分配。
+        // ---- 4.3 expand reference occurrences, generate anchors
+        // Generation only copies fields/light computation, avoids extra allocation
         for (std::size_t i = idx.start; i < idx.start + idx.count; ++i) {
             const auto& ref_hit = sorted_ref[i];
 
@@ -341,11 +341,11 @@ anchor::Anchors collect_anchors(const MinimizerHits& ref_hits, const MinimizerHi
             anchor.rid_qry = qry_hit.rid();
             anchor.pos_qry = qry_hit.pos();
 
-            // span 取二者较小值：保守估计“可用匹配长度”
-            // （下游 chaining 的 gap/penalty 模型通常只需要一个 span 量级）
+            // span takes smaller of two: conservative estimate of "usable match length"
+            // (downstream chaining's gap/penalty model typically needs just one span magnitude)
             anchor.span = std::min(ref_hit.span(), qry_hit.span());
 
-            // 方向：ref XOR qry（与 minimap2 的 rev 语义一致）
+            // Direction: ref XOR qry (consistent with minimap2's rev semantics)
             anchor.is_rev = (ref_hit.strand() != qry_hit.strand());
 
             anchors.emplace_back(anchor);

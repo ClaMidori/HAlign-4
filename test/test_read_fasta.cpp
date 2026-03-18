@@ -7,13 +7,13 @@
 #include <fstream>
 #include <string>
 
-#include "utils.h"   // 需要包含 seq_io::KseqReader / SeqRecord 的声明
+#include "utils.h"   // The declaration of seq_io::KseqReader / SeqRecord is required.
 
 namespace fs = std::filesystem;
 
 // ------------------------- perf gating -------------------------
 
-// perf 开关：你已有
+// perf switch: you already have this in test_consensus.cpp, but we put it here again for self-containment of this test file.
 static bool perfEnabled() {
     const char* v = std::getenv("HALIGN4_RUN_PERF");
     return (v != nullptr) && (*v != '\0') && (std::string(v) != "0");
@@ -27,7 +27,7 @@ static fs::path makeTempDir(std::string_view name) {
     if (const char* p = std::getenv("HALIGN4_PERF_DIR"); p && *p) {
         base = fs::path(p);
     } else {
-        base = fs::current_path(); // 避免某些环境 /tmp 是 tmpfs 或空间受限
+        base = fs::current_path(); // To avoid situations where /tmp is tmpfs or space is limited, please refer to the relevant documentation.
     }
 
     fs::path dir = base / std::string(name);
@@ -38,7 +38,7 @@ static fs::path makeTempDir(std::string_view name) {
     return dir;
 }
 
-// 写 FASTA：每条序列单行，避免多余开销；1000x30000 约 30MB 级别
+// Writing FASTA: Each sequence is written on a single line to avoid unnecessary overhead; 1000x30000 is approximately 30MB in size.
 static void writeAlignedFastaSingleLine(const fs::path& p, std::size_t n_seqs, std::size_t len) {
     std::ofstream ofs(p, std::ios::binary);
     REQUIRE_MESSAGE(ofs.good(), "cannot write fasta: " << p.string());
@@ -86,7 +86,7 @@ TEST_SUITE("read_fasta")
 }
 TEST_SUITE("read_fasta")
 {
-    // 性能测试：只有 HALIGN4_RUN_PERF=1 才执
+    // Performance testing: Execution only occurs when HALIGN4_RUN_PERF=1.
     TEST_CASE("read time: n=10000 len=30000 (kseq)")
     {
         constexpr std::size_t N   = 10000;
@@ -97,7 +97,7 @@ TEST_SUITE("read_fasta")
         fs::path out = dir / "aligned_1000_30000_out.fasta";
         seq_io::SeqWriter clean_writer(out);
 
-        // 1) 准备输入（不计入读取耗时）
+        // 1) Preparing for input (excluding reading time)
         writeAlignedFastaSingleLine(in, N, LEN);
 
         std::error_code ec;
@@ -105,7 +105,7 @@ TEST_SUITE("read_fasta")
         MESSAGE("input_ready: path=" << in.string()
                 << " size_MiB=" << (ec ? 0.0 : toMiB((double)fsz)));
 
-        // 2) 计时读取
+        // 2) Timing read
         auto t0 = std::chrono::steady_clock::now();
 
         seq_io::KseqReader r(in);
@@ -125,7 +125,7 @@ TEST_SUITE("read_fasta")
         CHECK(count == N);
         CHECK(bad_len == 0);
 
-        // 3) 输出吞吐
+        // 3) Output throughput
         const double mib = ec ? 0.0 : toMiB((double)fsz);
         const double mibps = (sec > 0.0) ? (mib / sec) : 0.0;
 
@@ -134,7 +134,7 @@ TEST_SUITE("read_fasta")
                 << " time_s=" << sec
                 << " throughput_MiBps=" << mibps);
 
-        // 4) 清理（可选）
+        // 4) Clean up (optional)
         fs::remove_all(dir, ec);
     }
 

@@ -10,7 +10,7 @@
 
 namespace fs = std::filesystem;
 
-// perf gating：只有设置 HALIGN4_RUN_PERF=1 才会执行性能用例
+// perf gating: performance tests only run when HALIGN4_RUN_PERF=1 is set
 static bool perfEnabled() {
     const char* v = std::getenv("HALIGN4_RUN_PERF");
     return (v != nullptr) && (*v != '\0') && (std::string(v) != "0");
@@ -47,7 +47,7 @@ TEST_SUITE("write_fasta")
         auto dir = makeTempDir("halign4_tests_fasta_writer");
         fs::path out = dir / "out.fasta";
 
-        // 使用一个很大的阈值，确保 write() 过程中不会自动触发 flushBuffer_。
+        // Use a large threshold to ensure write() does not automatically trigger flushBuffer_.
         {
             seq_io::SeqWriter w(out, /*line_width=*/4, /*buffer_threshold_bytes=*/1ULL << 30);
 
@@ -57,14 +57,14 @@ TEST_SUITE("write_fasta")
             w.write(r1);
             w.write(r2);
 
-            // 未显式 flush() 时，数据应该仍在内存缓冲区里；文件可能还没落盘。
-            // 注意：不同标准库/平台对文件大小可见性有差异，所以这里用“==0 或非常小”做弱断言。
+            // Without an explicit flush(), data should remain in the in-memory buffer; the file may not be written to disk yet.
+            // Note: file size visibility differs across standard libraries/platforms, so we use a weak assertion (==0 or very small).
             std::error_code ec;
             auto sz = fs::exists(out, ec) ? fs::file_size(out, ec) : 0ULL;
             CHECK_MESSAGE(!ec, "file_size failed: " << ec.message());
             CHECK_MESSAGE(sz == 0ULL, "expected buffered writer not to write on disk before flush (size=" << sz << ")");
 
-            // flush 后应落盘
+            // flush The plate should be dropped afterward.
             w.flush();
         }
 
@@ -91,9 +91,9 @@ TEST_SUITE("write_fasta")
         seq_io::SeqRecord r{"id", "", "AAAA", ""};
         w.write(r);
 
-        // 关闭额外缓冲时，write() 会直接写入到 std::ofstream 的用户态缓冲区，
-        // 但文件系统层面的“文件大小可见性”可能仍依赖 flush()/close()。
-        // 因此这里先 flush，再检查大小与内容，保证跨平台稳定。
+        // With extra buffering disabled, write() goes directly to std::ofstream's user-space buffer,
+        // but filesystem-level file size visibility may still depend on flush()/close().
+        // Therefore, flush first, then check size/content for cross-platform stability.
         w.flush();
 
         std::error_code ec;
@@ -121,18 +121,18 @@ TEST_SUITE("write_fasta")
         fs::path out_buf   = dir / "out_buffered.fasta";
         fs::path out_nobuf = dir / "out_nobuf.fasta";
 
-        // 准备测试数据：复用同一条序列内容，避免把随机数生成也算进写出时间里
+        // Prepare test data: reuse the same sequence content to avoid including RNG cost in write time
         seq_io::SeqRecord rec;
         rec.id = "s";
         rec.desc.clear();
         rec.seq.assign(LEN, 'A');
 
-        // 估算写出字节数（用于吞吐率）：每条记录大约为
+        // Estimate bytes written (for throughput): each record is roughly
         // - header: ">s\n" -> 3
         // - sequence: LEN + "\n" -> LEN+1
         const double approx_bytes = static_cast<double>(N) * static_cast<double>(3 + LEN + 1);
 
-        // 1) 默认 writer（内部额外缓冲阈值约 8MiB）
+        // 1) The default writer has an internal additional buffer threshold of approximately 8 MiB.
         {
             seq_io::SeqWriter w(out_buf);
             auto t0 = std::chrono::steady_clock::now();
@@ -148,7 +148,7 @@ TEST_SUITE("write_fasta")
                     << " approx_throughput_MiBps=" << (sec > 0.0 ? (toMiB(approx_bytes) / sec) : 0.0));
         }
 
-        // 2) 关闭额外缓冲（阈值=0）
+        // 2) Disable additional buffering (threshold=0)
         {
             seq_io::SeqWriter w(out_nobuf, /*line_width=*/80, /*buffer_threshold_bytes=*/0);
             auto t0 = std::chrono::steady_clock::now();
@@ -164,7 +164,7 @@ TEST_SUITE("write_fasta")
                     << " approx_throughput_MiBps=" << (sec > 0.0 ? (toMiB(approx_bytes) / sec) : 0.0));
         }
 
-        // 基本正确性 smoke：输出文件应非空（不做逐条解析，避免 perf 用例耗时过长）
+        // Basic correctness smoke: output files should be non-empty (no per-record parsing to keep perf test fast)
         std::error_code ec;
         CHECK(fs::file_size(out_buf, ec) > 0);
         CHECK(fs::file_size(out_nobuf, ec) > 0);

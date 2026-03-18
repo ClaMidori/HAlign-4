@@ -9,10 +9,10 @@
 #include <vector>
 
 // ================================================================
-// 这个文件把 extractMinimizer 的性能测试接入 doctest：
-// - 默认跳过（避免 CI/普通单测跑很久）
-// - 通过环境变量 HALIGN4_RUN_PERF=1 显式启用
-// - 测试里不做严格性能断言，只打印耗时/吞吐，用于人工对比实现改动前后表现
+// This file plugs extractMinimizer performance tests into doctest:
+// - skipped by default (to avoid long CI/normal test runs)
+// - explicitly enabled via env var HALIGN4_RUN_PERF=1
+// - no strict perf assertions; it prints timing/throughput for manual comparison
 // ================================================================
 
 static bool perfEnabled() {
@@ -26,7 +26,7 @@ static std::string makeRandomDna(std::size_t len, std::uint32_t seed)
     static constexpr char bases[4] = {'A', 'C', 'G', 'T'};
     std::uint64_t x = seed;
 
-    // 简单的 xorshift64*，比 mt19937 更轻量，足够生成测试数据
+    // Simple xorshift64* PRNG, lighter than mt19937 and sufficient for generating test data
     auto next = [&]() {
         x ^= x >> 12;
         x ^= x << 25;
@@ -46,7 +46,7 @@ TEST_SUITE("minimizer" * doctest::skip(shouldSkipPerf()))
 {
     TEST_CASE("extractMinimizer - throughput")
     {
-        // 可通过环境变量覆盖不同规模，便于你本地调参
+        // Parameters can be overridden via env vars for easier tuning locally
         // HALIGN4_MINIMIZER_SEQ_LEN=10000
         // HALIGN4_MINIMIZER_NUM_SEQS=200
         // HALIGN4_MINIMIZER_ROUNDS=5
@@ -59,7 +59,7 @@ TEST_SUITE("minimizer" * doctest::skip(shouldSkipPerf()))
         const std::size_t num_seqs = static_cast<std::size_t>(getenv_u64("HALIGN4_MINIMIZER_NUM_SEQS", 100000));
         const std::size_t rounds   = static_cast<std::size_t>(getenv_u64("HALIGN4_MINIMIZER_ROUNDS",   1));
 
-        // 参数：k/w
+        // parameters: k/w
         const std::size_t k = static_cast<std::size_t>(getenv_u64("HALIGN4_MINIMIZER_K", 15));
         const std::size_t w = static_cast<std::size_t>(getenv_u64("HALIGN4_MINIMIZER_W", 10));
 
@@ -71,7 +71,7 @@ TEST_SUITE("minimizer" * doctest::skip(shouldSkipPerf()))
             seqs.emplace_back(makeRandomDna(seq_len, static_cast<std::uint32_t>(1234 + i)));
         }
 
-        // 预热：避免第一次运行的 cache/branch predictor 影响过大
+        // Warm-up: avoid first-run cache/branch predictor effects from dominating
         std::uint64_t checksum = 0;
         for (const auto& s : seqs) {
             auto mz = minimizer::extractMinimizer(s, k, w, false);
@@ -103,7 +103,7 @@ TEST_SUITE("minimizer" * doctest::skip(shouldSkipPerf()))
         MESSAGE("total_minimizers=" << total_minimizers);
         MESSAGE("checksum=" << checksum);
 
-        // 不对性能做硬性断言，避免机器差异/负载导致 CI 不稳定。
+        // Do not make hard perf assertions to avoid CI instability due to machine/load differences.
         CHECK(sec > 0.0);
     }
 }

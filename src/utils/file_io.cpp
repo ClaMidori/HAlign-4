@@ -5,7 +5,7 @@
 
 namespace file_io {
 
-    // 格式化文件系统错误信息为可读字符串（带路径与错误消息）
+    // Format filesystem error information into a readable string (with path and error message)
     std::string formatFsError(std::string_view msg,
                                      const FilePath& p,
                                      const std::error_code& ec) {
@@ -22,7 +22,7 @@ namespace file_io {
         return s;
     }
 
-    // 确保路径存在，否则抛出异常（用于输入检验）
+    // Ensure path exists, otherwise throw exception (for input validation)
     void requireExists(const FilePath& p, std::string_view what) {
         std::error_code ec;
         const bool ok = fs::exists(p, ec);
@@ -31,7 +31,7 @@ namespace file_io {
         }
     }
 
-    // 确保路径是常规文件，否则抛出异常
+    // Ensure path is a regular file, otherwise throw exception
     void requireRegularFile(const FilePath& p, std::string_view what) {
         std::error_code ec;
         const bool ok = fs::is_regular_file(p, ec);
@@ -40,7 +40,7 @@ namespace file_io {
         }
     }
 
-    // 确保路径是目录，否则抛出异常
+    // Ensure path is a directory, otherwise throw exception
     void requireDirectory(const FilePath& p, std::string_view what) {
         std::error_code ec;
         const bool ok = fs::is_directory(p, ec);
@@ -49,7 +49,7 @@ namespace file_io {
         }
     }
 
-    // 确保目录存在；若不存在则创建
+    // Ensure directory exists; if not, create it
     void ensureDirectoryExists(const FilePath& p, std::string_view what) {
         std::error_code ec;
         if (fs::exists(p, ec)) {
@@ -69,7 +69,7 @@ namespace file_io {
         }
     }
 
-    // 检查路径是否为空（文件为空）
+    // Check if a path is empty (file has zero bytes)
     bool isEmpty(const FilePath& p) {
         std::error_code ec;
         const bool empty = fs::is_empty(p, ec);
@@ -79,7 +79,7 @@ namespace file_io {
         return empty;
     }
 
-    // 准备一个空目录：若不存在则创建；若要求为空但非空则抛错
+    // Prepare an empty directory: create it if missing; throw if must_be_empty and directory is not empty
     void prepareEmptydir(const FilePath& workdir, bool must_be_empty) {
         if (workdir.empty()) {
             throw std::runtime_error("workdir is empty");
@@ -92,7 +92,7 @@ namespace file_io {
         }
     }
 
-    // 确保输出文件的父目录存在（写文件前调用）
+    // Ensure the output file's parent directory exists (call before writing)
     void ensureParentDirExists(const FilePath& out_file) {
         if (out_file.empty()) return;
         auto parent = out_file.parent_path();
@@ -100,7 +100,7 @@ namespace file_io {
         ensureDirectoryExists(parent, "output parent dir");
     }
 
-    // 判断给定路径是否是 URL（简单判断 scheme:// 或 // 开头）
+    // Determine whether a given path is a URL (simple check for scheme:// or // prefix)
     bool isUrl(const FilePath& p) {
         const std::string s = p.string();
         if (s.size() >= 2 && s[0] == '/' && s[1] == '/') return true;
@@ -109,65 +109,65 @@ namespace file_io {
     }
 
     // ------------------------------------------------------------------
-    // 函数：copyFile
-    // 功能：复制文件，支持跨文件系统拷贝
+    // Function: copyFile
+    // Purpose: Copy a file, with support for cross-filesystem copy
     //
-    // 实现说明：
-    // 1. 优先使用 std::filesystem::copy_file（高效，支持元数据保留）
-    // 2. 遇到跨设备错误时回退到流拷贝（兼容性更好）
-    // 3. 特殊处理：源和目标相同时直接返回（无需拷贝）
+    // Implementation notes:
+    // 1. Prefer std::filesystem::copy_file (efficient, preserves metadata)
+    // 2. Fall back to stream copy on cross-device errors (better compatibility)
+    // 3. Special case: if source and destination refer to the same file, return early
     //
-    // 参数：
-    //   - src: 源文件路径（必须是常规文件）
-    //   - dst: 目标文件路径（会覆盖已存在的文件）
+    // Parameters:
+    //   - src: source file path (must be a regular file)
+    //   - dst: destination file path (will overwrite existing file)
     //
-    // 异常：
-    //   - 源文件不存在或不是常规文件时抛出异常
-    //   - 拷贝失败时抛出异常（带详细错误信息）
+    // Exceptions:
+    //   - throws if source doesn't exist or isn't a regular file
+    //   - throws on copy failures (with detailed error info)
     // ------------------------------------------------------------------
     void copyFile(const FilePath& src, const FilePath& dst) {
         requireRegularFile(src, "source file");
         ensureParentDirExists(dst);
 
-        // 边缘情况：源和目标是同一个文件，无需拷贝
-        // 说明：使用 std::filesystem::equivalent 检查两个路径是否指向同一个文件
-        //       这比字符串比较更可靠，能处理符号链接、相对路径等情况
+        // Edge case: source and destination are the same file; no need to copy
+        // Note: use std::filesystem::equivalent to check if two paths refer to the same file
+        //       This is more reliable than string comparison and handles symlinks/relative paths.
         std::error_code equiv_ec;
         if (fs::equivalent(src, dst, equiv_ec)) {
-            // 如果两个路径指向同一个文件，直接返回（无需拷贝）
+            // If both paths refer to the same file, return early (no copy needed)
             return;
         }
-        // 注意：如果 equivalent 失败（例如目标文件不存在），equiv_ec 会被设置，
-        //       但我们忽略它，因为 copy_file 会处理这种情况
+        // Note: if equivalent fails (e.g. destination doesn't exist), equiv_ec will be set,
+        //       but we ignore it because copy_file will handle that case.
 
-        // 尝试使用 std::filesystem::copy_file（高效）
+        // Try std::filesystem::copy_file first (fast)
         std::error_code ec;
         if (fs::copy_file(src, dst, fs::copy_options::overwrite_existing, ec)) {
-            // 拷贝成功
+            // copy succeeded
             return;
         }
 
-        // copy_file 返回 false，需要检查原因
+        // copy_file returned false; check why
         if (!ec) {
-            // 没有错误码但返回 false，这是一个异常情况
-            // 可能的原因：
-            // 1. 源和目标相同（但 equivalent 检查应该已经处理）
-            // 2. 文件已存在且内容相同（某些实现可能返回 false）
-            // 3. 其他未知原因
+            // No error code but returned false, this is unexpected.
+            // Possible reasons:
+            // 1. Source and destination are the same (but equivalent check should have handled this)
+            // 2. Destination file already exists and is identical (some implementations return false)
+            // 3. Other unknown reasons
             //
-            // 此时我们检查目标文件是否存在且可读，如果是则认为拷贝成功
+            // In this case, we check if the destination file exists and is readable; if so, we treat it as success.
             std::error_code exists_ec;
             if (fs::exists(dst, exists_ec) && !exists_ec && fs::is_regular_file(dst, exists_ec) && !exists_ec) {
-                // 目标文件存在且是常规文件，认为拷贝成功（可能是已存在且相同）
+                // Destination exists and is a regular file; treat as success (likely already present and identical)
                 return;
             }
-            // 否则抛出异常（未知原因）
+            // Otherwise throw (unknown reason)
             throw std::runtime_error(formatFsError("failed to copy file (unknown reason)", dst, exists_ec));
         }
 
-        // 有错误码：检查是否是跨设备错误，如果是则回退到流拷贝
+        // There is an error code: check if it is a cross-device error and fall back to stream copy
         if (ec == std::make_error_code(std::errc::cross_device_link)) {
-            // 跨文件系统拷贝：使用流拷贝
+            // Cross-filesystem copy: use stream copy
             std::ifstream in(src, std::ios::binary);
             if (!in) {
                 throw std::runtime_error(formatFsError("failed to open source for reading", src, std::make_error_code(std::errc::io_error)));
@@ -183,11 +183,11 @@ namespace file_io {
             return;
         }
 
-        // 其他错误：抛出异常
+        // Other errors: throw
         throw std::runtime_error(formatFsError("failed to copy file", dst, ec));
     }
 
-    // 下载远程文件到本地：优先使用 libcurl（如果可用），否则回退到调用 curl/wget 命令行
+    // Downloading remote files to local machine: use libcurl first (if available), otherwise fall back to calling curl/wget command line.
     void downloadFile(const std::string& url, const FilePath& dst) {
         if (url.empty()) {
             throw std::runtime_error("download url is empty");
@@ -239,7 +239,7 @@ namespace file_io {
     #endif
     }
 
-    // 如果 srcOrUrl 是 URL 则下载，否则复制本地文件到目标
+    // Download if srcOrUrl is a URL, otherwise copy a local file to destination
     void fetchFile(const FilePath& srcOrUrl, const FilePath& dst) {
         if (isUrl(srcOrUrl)) {
             downloadFile(srcOrUrl.string(), dst);
@@ -248,7 +248,7 @@ namespace file_io {
         }
     }
 
-    // 递归删除路径（文件或目录），失败时抛出异常
+    // Recursively remove a path (file or directory); throw on failure
     void removeAll(const FilePath& p) {
         std::error_code ec;
         fs::remove_all(p, ec);
@@ -257,7 +257,7 @@ namespace file_io {
         }
     }
 
-    // 读取整个文件到一个 std::string 中（用于小文件）
+    // Read an entire file into a std::string (for small files)
     std::string readFileToString(const FilePath& p) {
         requireRegularFile(p, "input file");
 
