@@ -7,6 +7,7 @@
 #include "mash.h"
 #include "seed.h"
 #include "ksw2.h"
+#include "psw.h"
 #include <unordered_map>
 #include <filesystem>
 #include <string>
@@ -69,6 +70,21 @@ namespace align {
     // - 'N'/'n' Or another -> 4 (unknown base)
     // Purpose: KSW2 requires that sequences be encoded as arrays of integers before alignment can be performed.
     // ------------------------------------------------------------------
+// 序列比对接口：KSW2 / WFA2 / 锚点分段（MM2）
+namespace align {
+    // 种子命中类型（当前统一使用 minimizer）
+    using SeedHit = minimizer::MinimizerHit;   // (ref_pos, query_pos, hash)
+    using SeedHits = std::vector<SeedHit>;
+    static constexpr seed::SeedKind kSeedKind = seed::SeedKind::minimizer;
+
+    typedef struct {
+        int len;
+        int dim;
+        int depth;              /* profile 总序列数 */
+        std::vector<uint32_t> prof;   /* 每列 dim 个计数；前 m 个通常是 residue/base 计数 */
+    } ProfileMatrix;
+
+    // DNA 字符映射到 0..4（A/C/G/T/N，大小写不敏感；其他字符按 N）
     static constexpr uint8_t ScoreChar2Idx[256] = {
         4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,  // 0-15
         4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,  // 16-31
@@ -208,7 +224,7 @@ namespace align {
     // ------------------------------------------------------------------
     cigar::Cigar_t globalAlignKSW2(const std::string& ref, const std::string& query);
 
-    cigar::Cigar_t globalAlignKSW2(const std::string& ref, const std::string& query, align::KSW2AlignConfig cfg);
+    cigar::Cigar_t globalAlignKSW2(const std::string& ref, const std::string& query, align::AlignConfig cfg);
 
     // ------------------------------------------------------------------
     // Function: extendAlignKSW2 - KSW2 extension alignment
@@ -273,7 +289,7 @@ namespace align {
     // ------------------------------------------------------------------
     cigar::Cigar_t globalAlignWFA2(const std::string& ref, const std::string& query);
 
-    // cigar::Cigar_t extendAlignWFA2(const std::string& ref, const std::string& query, int zdrop = 200);
+    cigar::Cigar_t globalAlignPSW(const ProfileMatrix& ref, const std::string& query, align::AlignConfig cfg);
 
     // ------------------------------------------------------------------
     // Type alias: alignment function type
@@ -470,6 +486,9 @@ namespace align {
                                seq_io::SeqWriter& out,
                                seq_io::SeqWriter& out_insertion) const;
 
+        void alignOneQueryToProfile(const seq_io::SeqRecord& q,
+                               seq_io::SeqWriter& out,
+                               seq_io::SeqWriter& out_insertion) const;
 
         // Helper function: write SAM record (select correct reference name and output file)
         void writeSamRecord(const seq_io::SeqRecord& q, const cigar::Cigar_t& cigar,
