@@ -4,6 +4,7 @@
 #include "consensus.h"
 
 #include "align.h"
+#include "memory_tracker.h"
 
 // Program entry: command line parsing -> preprocessing -> consensus alignment -> sequence alignment -> result merging -> cleanup working directory
 
@@ -135,8 +136,12 @@ int main(int argc, char** argv) {
 
         // comparison stage: align sequences to consensus and merge results
         const FilePath ref_path = opt.center_path.empty() ? consensus_file : FilePath(opt.center_path);
+        // Log memory before heavy alignment phase
+        MemoryTracker::log_rss("Before alignQueryToRef");
         align::RefAligner ref_aligner(opt, ref_path);
         ref_aligner.alignQueryToRef(opt.input);
+        // Log memory after alignment completes (peak should be visible here or via profiling)
+        MemoryTracker::log_rss("After alignQueryToRef");
         ref_aligner.mergeAlignedResults(opt.output, 25600);
 
         cleanupWorkdir(opt);

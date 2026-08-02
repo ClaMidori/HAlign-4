@@ -3,6 +3,7 @@ project(HAlign4)
 
 set(CMAKE_CXX_STANDARD 20)
 option(HALIGN4_NATIVE_ARCH "Enable -march=native" OFF)
+option(HALIGN4_ENABLE_OFFSET_COMPACT "Enable WFA offset compaction PoC" OFF)
 
 # If the user did not specify CMAKE_BUILD_TYPE, default to Release so optimizations are enabled by default
 if(NOT DEFINED CMAKE_BUILD_TYPE)
@@ -78,6 +79,17 @@ set(WFA2LIB_BUILD_TESTS OFF CACHE BOOL "Do not register WFA2-lib tests" FORCE)
 add_subdirectory(extern/WFA2-lib)
 
 target_link_libraries(halign4 PRIVATE OpenMP::OpenMP_CXX wfa2::wfa2cpp_static)
+
+# ========================================================================
+# Offset Compaction PoC: Add compile flag to enable/disable
+# ========================================================================
+if (HALIGN4_ENABLE_OFFSET_COMPACT)
+    message(STATUS "Enabling WFA offset compaction (EXPERIMENTAL)")
+    target_compile_definitions(halign4 PRIVATE HALIGN4_ENABLE_OFFSET_COMPACT=1)
+else()
+    message(STATUS "Offset compaction DISABLED (using standard WFA2-lib)")
+    target_compile_definitions(halign4 PRIVATE HALIGN4_ENABLE_OFFSET_COMPACT=0)
+endif()
 
 # Add aggressive optimization flags in Release builds (handled separately for GCC/Clang vs MSVC)
 if (MSVC)

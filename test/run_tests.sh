@@ -85,6 +85,10 @@ if [[ -n "${JOBS}" ]]; then
 fi
 cmake "${CMAKE_BUILD_ARGS[@]}"
 
+if [[ "${RUN_PERF}" -eq 1 ]]; then
+  export HALIGN4_RUN_PERF=1
+fi
+
 # Run doctest directly (bypass ctest) when filtering by suite and/or source file.
 if [[ -n "${SUITE:-}" || -n "${SOURCE_FILE:-}" ]]; then
   ...
@@ -103,10 +107,6 @@ fi
 
 # Run tests
 echo "[run_tests] running ctest..."
-if [[ "${RUN_PERF}" -eq 1 ]]; then
-  export HALIGN4_RUN_PERF=1
-fi
-
 CTEST_CMD=(ctest --test-dir "${BUILD_DIR}")
 if [[ "${VERBOSE}" -eq 1 ]]; then
   CTEST_CMD+=(-V)
