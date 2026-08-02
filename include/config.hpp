@@ -144,7 +144,7 @@ typedef uint32_t uint_t;
 #define I_MIN	INT32_MIN
 #endif
 
-// 获取硬件并发线程数（兜底 1）
+// Get hardware concurrency thread count (fallback to 1).
 static int get_default_threads() {
     unsigned int hc = std::thread::hardware_concurrency();
     return static_cast<int>(hc ? hc : 1u);
@@ -486,4 +486,3 @@ inline std::string getCommandLine(int argc, char** argv) {
 }
 
 #endif // CONFIG_HPP
-

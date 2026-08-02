@@ -16,29 +16,33 @@ include(FeatureSummary)
 include(GNUInstallDirs)
 
 # ---------------------------------------------------------------------------
-# 作为子项目被 add_subdirectory() 引入时，主工程通常只需要核心库。
-# 但 WFA2-lib 上游 CMake 默认总是添加 benchmark 可执行文件，并注册测试。
+# When included as a subproject via add_subdirectory(), the parent project usually
+# only needs the core library.
+# Upstream WFA2-lib CMake, however, adds the benchmark executable and registers tests by default.
 #
-# 这里补充两个构建开关：
-# - WFA2LIB_BUILD_BENCHMARK：是否构建 align_benchmark（默认 ON，保持上游行为不变）
-# - WFA2LIB_BUILD_TESTS：是否 enable_testing 并 add_test（默认 ON，保持上游行为不变）
+# Add two build switches:
+# - WFA2LIB_BUILD_BENCHMARK: whether to build align_benchmark
+#   (default ON, keeping upstream behavior).
+# - WFA2LIB_BUILD_TESTS: whether to enable_testing and add_test
+#   (default ON, keeping upstream behavior).
 #
-# 主工程可以在 add_subdirectory 之前 set(... CACHE BOOL ... FORCE) 来关闭它们，
-# 从而“只编译核心代码”。
+# The parent project can set(... CACHE BOOL ... FORCE) before add_subdirectory
+# to disable them and compile only the core code.
 # ---------------------------------------------------------------------------
 option(WFA2LIB_BUILD_BENCHMARK "Build WFA2-lib benchmark executable" ON)
 option(WFA2LIB_BUILD_TESTS "Build/register WFA2-lib tests" ON)
 
 # ---------------------------------------------------------------------------
-# PkgConfig 并不是 WFA2-lib 核心库（wfa2/wfa2cpp）的必需依赖。
+# PkgConfig is not a required dependency for WFA2-lib core libraries
+# (wfa2 / wfa2cpp).
 #
-# 你的主工程希望完全不使用 pkg-config（例如设置了
-# CMAKE_DISABLE_FIND_PACKAGE_PkgConfig=ON），因此这里不能用 REQUIRED，
-# 否则会导致 CMake 配置阶段直接失败。
+# If the parent project wants to avoid pkg-config entirely (for example, by setting
+# CMAKE_DISABLE_FIND_PACKAGE_PkgConfig=ON), this lookup cannot be REQUIRED,
+# otherwise CMake configuration fails immediately.
 #
-# 改为 QUIET：
-# - 有 pkg-config：照常检测（保持与上游尽量一致）
-# - 没有/被禁用：继续编译核心库，仅打印提示
+# Use QUIET instead:
+# - If pkg-config is available: detect as usual (close to upstream behavior).
+# - If unavailable/disabled: continue building the core library and only print a notice.
 # ---------------------------------------------------------------------------
 find_package(PkgConfig QUIET)
 if(NOT PkgConfig_FOUND)

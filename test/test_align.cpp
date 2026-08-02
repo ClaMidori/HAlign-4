@@ -231,7 +231,7 @@ struct Timer {
 // ------------------------------------------------------------------
 TEST_SUITE("align") {
 
-    TEST_CASE("globalAlignKSW2 - 精确匹配") {
+    TEST_CASE("globalAlignKSW2 - Exact match") {
         std::string seq = "ACGTACGTACGT";
         auto cigar = align::globalAlignKSW2(seq, seq);
 
@@ -244,7 +244,7 @@ TEST_SUITE("align") {
         CHECK(len == 12);
     }
 
-    TEST_CASE("globalAlignKSW2 - 单个错配") {
+    TEST_CASE("globalAlignKSW2 - Single mismatch") {
         std::string ref   = "ACGTACGTACGT";
         std::string query = "ACGTACCGTACGT";  // 6th position T->C mismatch
 
@@ -257,7 +257,7 @@ TEST_SUITE("align") {
         CHECK(!cigar_str.empty());
     }
 
-    TEST_CASE("globalAlignKSW2 - 单个插入") {
+    TEST_CASE("globalAlignKSW2 - Single insertion") {
         std::string ref   = "ACGTACGTACGT";
         std::string query = "ACGTAACGTACGT";  // Insert A after the 5th position
 
@@ -270,7 +270,7 @@ TEST_SUITE("align") {
         CHECK(has_insertion);
     }
 
-    TEST_CASE("extendAlignKSW2 - 基本延伸") {
+    TEST_CASE("extendAlignKSW2 - Basic extension") {
         std::string ref = generateRandomDNA(1000, 100);
         std::string query = ref.substr(100, 500);  // Extract the middle fragment
 
@@ -282,7 +282,7 @@ TEST_SUITE("align") {
         CHECK(!cigar_str.empty());
     }
 
-    TEST_CASE("globalAlignWFA2 - 精确匹配") {
+    TEST_CASE("globalAlignWFA2 - Exact match") {
         std::string seq = "ACGTACGTACGT";
         auto cigar = align::globalAlignWFA2(seq, seq);
 
@@ -292,7 +292,7 @@ TEST_SUITE("align") {
         CHECK(!cigar_str.empty());
     }
 
-    TEST_CASE("空序列边界测试") {
+    TEST_CASE("Empty sequence boundary test") {
         std::string empty = "";
         std::string seq = "ACGT";
 
@@ -301,7 +301,7 @@ TEST_SUITE("align") {
         CHECK_NOTHROW(align::globalAlignKSW2(seq, empty));
     }
 
-    TEST_CASE("高相似度序列 - 99% 相似") {
+    TEST_CASE("High-similarity sequence - 99% similarity") {
         // Generate a 1000bp sequence with 1% mismatches
         std::string ref = generateRandomDNA(1000, 12345);
         std::string query = mutateSequence(ref, 0.01, 0.0, 12346);  // only SNPs, no indels
@@ -321,7 +321,7 @@ TEST_SUITE("align") {
         MESSAGE("WFA2 CIGAR: ", cigarToString(cigar_wfa2));
     }
 
-    TEST_CASE("高相似度序列 - 98% 相似（含 indel）") {
+    TEST_CASE("High-similarity sequence - 98% similarity (with indel)") {
         // Generate a sequence with 1% SNPs and 1% indels
         std::string ref = generateRandomDNA(500, 54321);
         std::string query = mutateSequence(ref, 0.01, 0.01, 54322);
@@ -346,7 +346,7 @@ TEST_SUITE("align") {
         CHECK(has_match_wfa2);
     }
 
-    TEST_CASE("极高相似度序列 - 99.9% 相似") {
+    TEST_CASE("Ultra-high similarity sequence - 99.9% similarity") {
         // Simulate sequencing errors: only 0.1% error rate
         std::string ref = generateRandomDNA(10000, 99999);
         std::string query = mutateSequence(ref, 0.0005, 0.0005, 100000);
@@ -357,7 +357,7 @@ TEST_SUITE("align") {
         double elapsed = timer.elapsedMs();
 
         CHECK(cigar.size() > 0);
-        MESSAGE("极高相似度 10k 序列比对耗时: ", elapsed, " ms");
+        MESSAGE("Ultra-high similarity 10k alignment elapsed: ", elapsed, " ms");
 
         // For 10k sequences with 99.9% similarity, it should finish in a reasonable time (<100ms)
         CHECK(elapsed < 100.0);
@@ -366,9 +366,9 @@ TEST_SUITE("align") {
     // ------------------------------------------------------------------
     // Test: cigarToString and stringToCigar are inverses
     // ------------------------------------------------------------------
-    TEST_CASE("cigar::cigarToString and stringToCigar - 互逆操作") {
+    TEST_CASE("cigar::cigarToString and stringToCigar - Inverse operations") {
         // Test 1: standard CIGAR string
-        SUBCASE("标准 CIGAR") {
+        SUBCASE("Standard CIGAR") {
             cigar::Cigar_t original;
             original.push_back(cigar::cigarToInt('M', 100));
             original.push_back(cigar::cigarToInt('I', 5));
@@ -391,7 +391,7 @@ TEST_SUITE("align") {
         }
 
         // Test 2: all CIGAR operators
-        SUBCASE("所有操作符") {
+        SUBCASE("All operators") {
             cigar::Cigar_t original;
             original.push_back(cigar::cigarToInt('M', 10));
             original.push_back(cigar::cigarToInt('I', 2));
@@ -413,19 +413,19 @@ TEST_SUITE("align") {
         }
 
         // Test 3: special value "*"
-        SUBCASE("特殊值 *") {
+        SUBCASE("Special value *") {
             cigar::Cigar_t empty_cigar = cigar::stringToCigar("*");
             CHECK(empty_cigar.empty());
         }
 
         // Test 4: empty string
-        SUBCASE("空字符串") {
+        SUBCASE("Empty string") {
             cigar::Cigar_t empty_cigar = cigar::stringToCigar("");
             CHECK(empty_cigar.empty());
         }
 
         // Test 5: large numeric lengths
-        SUBCASE("大数字长度") {
+        SUBCASE("Large numeric lengths") {
             cigar::Cigar_t original;
             original.push_back(cigar::cigarToInt('M', 999999));
             original.push_back(cigar::cigarToInt('D', 123456));
@@ -443,19 +443,19 @@ TEST_SUITE("align") {
     // ------------------------------------------------------------------
 // Test: stringToCigar error handling
 // ------------------------------------------------------------------
-TEST_CASE("cigar::stringToCigar - 错误处理") {
+TEST_CASE("cigar::stringToCigar - Error handling") {
     // Test 1: no number before operator
-    SUBCASE("操作符前没有数字") {
+    SUBCASE("No number before operator") {
         CHECK_THROWS_AS(cigar::stringToCigar("M10"), std::runtime_error);
     }
 
     // Test 2: unknown operator
-    SUBCASE("未知操作符") {
+    SUBCASE("Unknown operator") {
         CHECK_THROWS_AS(cigar::stringToCigar("10Q"), std::runtime_error);
     }
 
     // Test 3: trailing number without operator
-    SUBCASE("结尾有数字无操作符") {
+    SUBCASE("Trailing number without operator") {
         CHECK_THROWS_AS(cigar::stringToCigar("10M5"), std::runtime_error);
     }
 
@@ -466,7 +466,7 @@ TEST_CASE("cigar::stringToCigar - 错误处理") {
     // ------------------------------------------------------------------
 // Test: stringToCigar robustness
 // ------------------------------------------------------------------
-TEST_CASE("cigar::stringToCigar - 容错性") {
+TEST_CASE("cigar::stringToCigar - Robustness") {
     // Test 1: contains whitespace
             std::string cigar_with_spaces = " 10M 5I  3D ";
             cigar::Cigar_t result = cigar::stringToCigar(cigar_with_spaces);
@@ -501,7 +501,7 @@ TEST_SUITE("align_perf") {
         constexpr int NUM_RUNS = 1000;
         constexpr size_t SEQ_LEN = 100;
 
-        std::cout << "\n========== 短序列性能测试 (100bp, " << NUM_RUNS << " 次) ==========\n";
+        std::cout << "\n========== Short-sequence performance test (100bp, " << NUM_RUNS << " runs) ==========\n";
 
         // Generate test data
         std::vector<std::pair<std::string, std::string>> test_pairs;
@@ -537,7 +537,7 @@ TEST_SUITE("align_perf") {
             }
             double elapsed = timer.elapsedMs();
             std::cout << "  globalAlignKSW2:  " << std::fixed << std::setprecision(2)
-                      << elapsed << " ms (" << (elapsed / NUM_RUNS) << " ms/次)\n";
+                      << elapsed << " ms (" << (elapsed / NUM_RUNS) << " ms/run)\n";
         }
 
         // Test extendAlignKSW2
@@ -549,7 +549,7 @@ TEST_SUITE("align_perf") {
             }
             double elapsed = timer.elapsedMs();
             std::cout << "  extendAlignKSW2:  " << std::fixed << std::setprecision(2)
-                      << elapsed << " ms (" << (elapsed / NUM_RUNS) << " ms/次)\n";
+                      << elapsed << " ms (" << (elapsed / NUM_RUNS) << " ms/run)\n";
         }
 
         // Test globalAlignWFA2
@@ -561,7 +561,7 @@ TEST_SUITE("align_perf") {
             }
             double elapsed = timer.elapsedMs();
             std::cout << "  globalAlignWFA2:  " << std::fixed << std::setprecision(2)
-                      << elapsed << " ms (" << (elapsed / NUM_RUNS) << " ms/次)\n";
+                      << elapsed << " ms (" << (elapsed / NUM_RUNS) << " ms/run)\n";
         }
 
         // Test globalAlignMM2 (with anchors)
@@ -574,7 +574,7 @@ TEST_SUITE("align_perf") {
             }
             double elapsed = timer.elapsedMs();
             std::cout << "  globalAlignMM2:   " << std::fixed << std::setprecision(2)
-                      << elapsed << " ms (" << (elapsed / NUM_RUNS) << " ms/次)\n";
+                      << elapsed << " ms (" << (elapsed / NUM_RUNS) << " ms/run)\n";
         }
 
         std::cout << "========================================================\n\n";
@@ -587,7 +587,7 @@ TEST_SUITE("align_perf") {
         constexpr int NUM_RUNS = 100;
         constexpr size_t SEQ_LEN = 1000;
 
-        std::cout << "\n========== 中等序列性能测试 (1000bp, " << NUM_RUNS << " 次) ==========\n";
+        std::cout << "\n========== Medium-sequence performance test (1000bp, " << NUM_RUNS << " runs) ==========\n";
 
         std::vector<std::pair<std::string, std::string>> test_pairs;
         std::vector<anchor::Anchors> anchors_list;
@@ -621,7 +621,7 @@ TEST_SUITE("align_perf") {
             }
             double elapsed = timer.elapsedMs();
             std::cout << "  globalAlignKSW2:  " << std::fixed << std::setprecision(2)
-                      << elapsed << " ms (" << (elapsed / NUM_RUNS) << " ms/次)\n";
+                      << elapsed << " ms (" << (elapsed / NUM_RUNS) << " ms/run)\n";
         }
 
         {
@@ -632,7 +632,7 @@ TEST_SUITE("align_perf") {
             }
             double elapsed = timer.elapsedMs();
             std::cout << "  extendAlignKSW2:  " << std::fixed << std::setprecision(2)
-                      << elapsed << " ms (" << (elapsed / NUM_RUNS) << " ms/次)\n";
+                      << elapsed << " ms (" << (elapsed / NUM_RUNS) << " ms/run)\n";
         }
 
         {
@@ -643,7 +643,7 @@ TEST_SUITE("align_perf") {
             }
             double elapsed = timer.elapsedMs();
             std::cout << "  globalAlignWFA2:  " << std::fixed << std::setprecision(2)
-                      << elapsed << " ms (" << (elapsed / NUM_RUNS) << " ms/次)\n";
+                      << elapsed << " ms (" << (elapsed / NUM_RUNS) << " ms/run)\n";
         }
 
         {
@@ -655,7 +655,7 @@ TEST_SUITE("align_perf") {
             }
             double elapsed = timer.elapsedMs();
             std::cout << "  globalAlignMM2:   " << std::fixed << std::setprecision(2)
-                      << elapsed << " ms (" << (elapsed / NUM_RUNS) << " ms/次)\n";
+                      << elapsed << " ms (" << (elapsed / NUM_RUNS) << " ms/run)\n";
         }
 
         std::cout << "========================================================\n\n";
@@ -668,7 +668,7 @@ TEST_SUITE("align_perf") {
         constexpr int NUM_RUNS = 10;
         constexpr size_t SEQ_LEN = 10000;
 
-        std::cout << "\n========== 长序列性能测试 (10000bp, " << NUM_RUNS << " 次) ==========\n";
+        std::cout << "\n========== Long-sequence performance test (10000bp, " << NUM_RUNS << " runs) ==========\n";
 
         std::vector<std::pair<std::string, std::string>> test_pairs;
         std::vector<anchor::Anchors> anchors_list;
@@ -702,7 +702,7 @@ TEST_SUITE("align_perf") {
             }
             double elapsed = timer.elapsedMs();
             std::cout << "  globalAlignKSW2:  " << std::fixed << std::setprecision(2)
-                      << elapsed << " ms (" << (elapsed / NUM_RUNS) << " ms/次)\n";
+                      << elapsed << " ms (" << (elapsed / NUM_RUNS) << " ms/run)\n";
         }
 
         {
@@ -713,7 +713,7 @@ TEST_SUITE("align_perf") {
             }
             double elapsed = timer.elapsedMs();
             std::cout << "  extendAlignKSW2:  " << std::fixed << std::setprecision(2)
-                      << elapsed << " ms (" << (elapsed / NUM_RUNS) << " ms/次)\n";
+                      << elapsed << " ms (" << (elapsed / NUM_RUNS) << " ms/run)\n";
         }
 
         {
@@ -724,7 +724,7 @@ TEST_SUITE("align_perf") {
             }
             double elapsed = timer.elapsedMs();
             std::cout << "  globalAlignWFA2:  " << std::fixed << std::setprecision(2)
-                      << elapsed << " ms (" << (elapsed / NUM_RUNS) << " ms/次)\n";
+                      << elapsed << " ms (" << (elapsed / NUM_RUNS) << " ms/run)\n";
         }
 
         {
@@ -736,7 +736,7 @@ TEST_SUITE("align_perf") {
             }
             double elapsed = timer.elapsedMs();
             std::cout << "  globalAlignMM2:   " << std::fixed << std::setprecision(2)
-                      << elapsed << " ms (" << (elapsed / NUM_RUNS) << " ms/次)\n";
+                      << elapsed << " ms (" << (elapsed / NUM_RUNS) << " ms/run)\n";
         }
 
         std::cout << "========================================================\n\n";
@@ -750,8 +750,8 @@ TEST_SUITE("align_perf") {
         constexpr int NUM_RUNS = 200;
         constexpr size_t SEQ_LEN = 1000;
 
-        std::cout << "\n========== 高相似度序列性能测试 (1000bp, " << NUM_RUNS << " 次) ==========\n";
-        std::cout << "说明：模拟真实基因组测序场景，序列相似度 >95%\n\n";
+        std::cout << "\n========== High-similarity sequence performance test (1000bp, " << NUM_RUNS << " runs) ==========\n";
+        std::cout << "Note: simulates real genome sequencing scenarios, sequence similarity >95%\n\n";
 
         // Test different similarity levels (by controlling SNP + indel rates)
         struct SimilarityLevel {
@@ -762,15 +762,15 @@ TEST_SUITE("align_perf") {
         };
 
         std::vector<SimilarityLevel> levels = {
-            {0.0001, 0.0001, "极高相似度 (>99.9%)", 99.98},
-            {0.001,  0.0005, "很高相似度 (~99%)",   99.0},
-            {0.005,  0.002,  "高相似度 (~98%)",     98.0},
-            {0.01,   0.005,  "中等相似度 (~97%)",   97.0},
-            {0.03,   0.01,   "较低相似度 (~95%)",   95.0},
-            {0.05,   0.02,   "低相似度 (~90%)",     90.0},
-            {0.08,   0.03,   "更低相似度 (~85%)",   85.0},
-            {0.12,   0.05,   "很低相似度 (~80%)",   80.0},
-            {0.18,   0.07,   "极低相似度 (~70%)",   70.0}
+            {0.0001, 0.0001, "Ultra-high similarity (>99.9%)", 99.98},
+            {0.001,  0.0005, "Very high similarity (~99%)",   99.0},
+            {0.005,  0.002,  "High similarity (~98%)",     98.0},
+            {0.01,   0.005,  "Moderate similarity (~97%)",   97.0},
+            {0.03,   0.01,   "Lower similarity (~95%)",   95.0},
+            {0.05,   0.02,   "Low similarity (~90%)",     90.0},
+            {0.08,   0.03,   "Even lower similarity (~85%)",   85.0},
+            {0.12,   0.05,   "Very low similarity (~80%)",   80.0},
+            {0.18,   0.07,   "Extremely low similarity (~70%)",   70.0}
         };
 
         for (const auto& level : levels) {
@@ -840,7 +840,7 @@ TEST_SUITE("align_perf") {
                     double avg_jaccard = total_jaccard / valid_count;
                     double avg_ani = total_ani / valid_count;
 
-                    std::cout << "  Mash 相似度 (k=" << MASH_K << ", s=" << MASH_SKETCH_SIZE << "):\n";
+                    std::cout << "  Mash similarity (k=" << MASH_K << ", s=" << MASH_SKETCH_SIZE << "):\n";
                     std::cout << "    Jaccard: " << std::fixed << std::setprecision(4) << avg_jaccard
                               << "  ANI: " << std::setprecision(2) << (avg_ani * 100.0) << "%\n";
                 }
@@ -857,9 +857,9 @@ TEST_SUITE("align_perf") {
                 }
                 double elapsed = timer.elapsedMs();
                 double avg_ms = elapsed / NUM_RUNS;
-                std::cout << "  KSW2 全局比对:  " << std::fixed << std::setprecision(3)
-                          << avg_ms << " ms/次  (吞吐: " << (1000.0 / avg_ms)
-                          << " 次/秒)\n";
+                std::cout << "  KSW2 global alignment:  " << std::fixed << std::setprecision(3)
+                          << avg_ms << " ms/run  (Throughput: " << (1000.0 / avg_ms)
+                          << " runs/s)\n";
             }
 
             // KSW2 extend mode test
@@ -871,9 +871,9 @@ TEST_SUITE("align_perf") {
                 }
                 double elapsed = timer.elapsedMs();
                 double avg_ms = elapsed / NUM_RUNS;
-                std::cout << "  KSW2 延伸模式:  " << std::fixed << std::setprecision(3)
-                          << avg_ms << " ms/次  (吞吐: " << (1000.0 / avg_ms)
-                          << " 次/秒)\n";
+                std::cout << "  KSW2 extension mode:  " << std::fixed << std::setprecision(3)
+                          << avg_ms << " ms/run  (Throughput: " << (1000.0 / avg_ms)
+                          << " runs/s)\n";
             }
 
             // WFA2 test
@@ -886,9 +886,9 @@ TEST_SUITE("align_perf") {
                 }
                 double elapsed = timer.elapsedMs();
                 double avg_ms = elapsed / NUM_RUNS;
-                std::cout << "  WFA2 全局比对:  " << std::fixed << std::setprecision(3)
-                          << avg_ms << " ms/次  (吞吐: " << (1000.0 / avg_ms)
-                          << " 次/秒)\n";
+                std::cout << "  WFA2 global alignment:  " << std::fixed << std::setprecision(3)
+                          << avg_ms << " ms/run  (Throughput: " << (1000.0 / avg_ms)
+                          << " runs/s)\n";
             }
 
             // MM2 test
@@ -901,9 +901,9 @@ TEST_SUITE("align_perf") {
                 }
                 double elapsed = timer.elapsedMs();
                 double avg_ms = elapsed / NUM_RUNS;
-                std::cout << "  MM2 锚点比对:   " << std::fixed << std::setprecision(3)
-                          << avg_ms << " ms/次  (吞吐: " << (1000.0 / avg_ms)
-                          << " 次/秒)\n";
+                std::cout << "  MM2 anchor-based alignment:   " << std::fixed << std::setprecision(3)
+                          << avg_ms << " ms/run  (Throughput: " << (1000.0 / avg_ms)
+                          << " runs/s)\n";
             }
 
             std::cout << "\n";
@@ -920,11 +920,11 @@ TEST_SUITE("align_perf") {
         constexpr double SNP_RATE = 0.01;    // 1% SNP (~98% similarity)
         constexpr double INDEL_RATE = 0.005; // 0.5% indel
 
-        std::cout << "\n========== 长度扩展性测试 (相似度 ~98%, " << NUM_RUNS << " 次) ==========\n";
+        std::cout << "\n========== Length scalability test (similarity ~98%, " << NUM_RUNS << " runs) ==========\n";
 
         std::vector<size_t> lengths = {100, 500, 1000, 5000, 10000};
 
-        std::cout << std::setw(10) << "长度(bp)"
+        std::cout << std::setw(10) << "Length (bp)"
                   << std::setw(15) << "KSW2(ms)"
                   << std::setw(15) << "Extend(ms)"
                   << std::setw(15) << "WFA2(ms)"
@@ -1029,7 +1029,7 @@ TEST_SUITE("align_perf") {
 
         std::vector<size_t> query_lengths = {100, 500, 1000, 5000, 10000, 15000, 20000, 25000};
 
-        std::cout << std::setw(12) << "Query长度"
+        std::cout << std::setw(12) << "Query length"
                   << std::setw(15) << "KSW2(ms)"
                   << std::setw(15) << "Extend(ms)"
                   << std::setw(15) << "WFA2(ms)"
@@ -1127,11 +1127,11 @@ TEST_SUITE("align_perf") {
                       << std::setw(15) << mm2_time << "\n";
         }
 
-        std::cout << "\n备注：\n";
-        std::cout << "  - 该测试模拟真实场景：长参考序列与变长查询序列比对\n";
-        std::cout << "  - Query 是从 Ref 的某个区域提取并突变得到（95% 相似度）\n";
-        std::cout << "  - 锚点辅助算法（MM2/Extend）在此场景下应显著减少搜索空间\n";
-        std::cout << "  - KSW2 全局比对复杂度为 O(m*n)，在 ref 很长时会有明显开销\n";
+        std::cout << "\nNotes:\n";
+        std::cout << "  - This test simulates a real scenario: aligning a long reference sequence with variable-length query sequences\n";
+        std::cout << "  - Query is extracted from a region of Ref and mutated (95% similarity)\n";
+        std::cout << "  - Anchor-assisted algorithms (MM2/Extend) should significantly reduce the search space in this scenario\n";
+        std::cout << "  - KSW2 global alignment has O(m*n) complexity and incurs noticeable overhead when ref is very long\n";
         std::cout << "========================================================\n\n";
     }
 
@@ -1142,8 +1142,8 @@ TEST_SUITE("align_perf") {
         constexpr int NUM_RUNS = 100;
         constexpr size_t SEQ_LEN = 1000;
 
-        std::cout << "\n========== 低相似度序列性能测试 (1000bp, " << NUM_RUNS << " 次) ==========\n";
-        std::cout << "说明：测试算法在高突变率序列上的性能\n\n";
+        std::cout << "\n========== Low-similarity sequence performance test (1000bp, " << NUM_RUNS << " runs) ==========\n";
+        std::cout << "Note: tests algorithm performance on high-mutation-rate sequences\n\n";
 
         struct LowSimilarityLevel {
             double snp_rate;
@@ -1152,13 +1152,13 @@ TEST_SUITE("align_perf") {
         };
 
         std::vector<LowSimilarityLevel> levels = {
-            {0.05,  0.02,  "90% 相似度"},
-            {0.10,  0.05,  "85% 相似度"},
-            {0.15,  0.08,  "75% 相似度"},
-            {0.20,  0.10,  "70% 相似度"}
+            {0.05,  0.02,  "90% similarity"},
+            {0.10,  0.05,  "85% similarity"},
+            {0.15,  0.08,  "75% similarity"},
+            {0.20,  0.10,  "70% similarity"}
         };
 
-        std::cout << std::setw(20) << "相似度等级"
+        std::cout << std::setw(20) << "Similarity level"
                   << std::setw(15) << "KSW2(ms)"
                   << std::setw(15) << "Extend(ms)"
                   << std::setw(15) << "WFA2(ms)"
@@ -1242,7 +1242,7 @@ TEST_SUITE("align_perf") {
                       << std::setw(15) << mm2_time << "\n";
         }
 
-        std::cout << "\n备注：低相似度时，MM2 的锚点可能不够可靠，性能优势会减弱\n";
+        std::cout << "\nNote: at low similarity, MM2 anchors may be less reliable and performance gains can weaken\n";
         std::cout << "========================================================\n\n";
     }
 
@@ -1254,8 +1254,8 @@ TEST_SUITE("align_perf") {
         constexpr int NUM_RUNS = 100;
         constexpr size_t SEQ_LEN = 2000;
 
-        std::cout << "\n========== globalAlignMM2 性能测试 (2000bp, " << NUM_RUNS << " 次) ==========\n";
-        std::cout << "说明：对比有锚点辅助的 MM2 比对 vs 纯全局比对\n\n";
+        std::cout << "\n========== globalAlignMM2 performance test (2000bp, " << NUM_RUNS << " runs) ==========\n";
+        std::cout << "Note: compares anchor-assisted MM2 alignment vs pure global alignment\n\n";
 
         // Generate test data: high similarity sequences (98%)
         std::vector<std::pair<std::string, std::string>> test_pairs;
@@ -1319,14 +1319,14 @@ TEST_SUITE("align_perf") {
         }
 
         std::cout << "  globalAlignKSW2:              " << std::fixed << std::setprecision(2)
-                  << ksw2_time << " ms (" << (ksw2_time / NUM_RUNS) << " ms/次)\n";
-        std::cout << "  globalAlignMM2 (有锚点):      " << std::fixed << std::setprecision(2)
-                  << mm2_time << " ms (" << (mm2_time / NUM_RUNS) << " ms/次)\n";
-        std::cout << "  globalAlignMM2 (空锚点):      " << std::fixed << std::setprecision(2)
-                  << mm2_empty_time << " ms (" << (mm2_empty_time / NUM_RUNS) << " ms/次)\n";
+                  << ksw2_time << " ms (" << (ksw2_time / NUM_RUNS) << " ms/run)\n";
+        std::cout << "  globalAlignMM2 (with anchors):      " << std::fixed << std::setprecision(2)
+                  << mm2_time << " ms (" << (mm2_time / NUM_RUNS) << " ms/run)\n";
+        std::cout << "  globalAlignMM2 (empty anchors):      " << std::fixed << std::setprecision(2)
+                  << mm2_empty_time << " ms (" << (mm2_empty_time / NUM_RUNS) << " ms/run)\n";
 
         double speedup = ksw2_time / mm2_time;
-        std::cout << "\n  加速比 (有锚点 vs 纯KSW2):    " << std::fixed << std::setprecision(2)
+        std::cout << "\n  Speedup (with anchors vs pure KSW2):    " << std::fixed << std::setprecision(2)
                   << speedup << "x\n";
 
         std::cout << "========================================================\n\n";
@@ -1339,7 +1339,7 @@ TEST_SUITE("align_perf") {
         constexpr int NUM_RUNS = 50;
         constexpr size_t SEQ_LEN = 3000;
 
-        std::cout << "\n========== globalAlignMM2 锚点密度测试 (3000bp, " << NUM_RUNS << " 次) ==========\n";
+        std::cout << "\n========== globalAlignMM2 anchor density test (3000bp, " << NUM_RUNS << " runs) ==========\n";
 
         // Generate test data
         std::vector<std::pair<std::string, std::string>> test_pairs;
@@ -1352,9 +1352,9 @@ TEST_SUITE("align_perf") {
         // Test different anchor intervals (densities)
         std::vector<size_t> anchor_intervals = {500, 300, 200, 100, 50};
 
-        std::cout << std::setw(15) << "锚点间隔(bp)"
-                  << std::setw(15) << "锚点数量"
-                  << std::setw(15) << "耗时(ms)" << "\n";
+        std::cout << std::setw(15) << "Anchor interval (bp)"
+                  << std::setw(15) << "Anchor count"
+                  << std::setw(15) << "Elapsed (ms)" << "\n";
         std::cout << std::string(45, '-') << "\n";
 
         for (size_t interval : anchor_intervals) {
@@ -1401,7 +1401,7 @@ TEST_SUITE("align_perf") {
     // ------------------------------------------------------------------
     // Test: globalAlignMM2 - anchor-based global alignment
     // ------------------------------------------------------------------
-    TEST_CASE("globalAlignMM2 - 空锚点退化为全局比对") {
+    TEST_CASE("globalAlignMM2 - Empty anchors degrade to global alignment") {
         std::string ref = "ACGTACGTACGT";
         std::string query = "ACGTACCGTACGT";  // The 6th position is mismatched.
 
@@ -1415,7 +1415,7 @@ TEST_SUITE("align_perf") {
         CHECK(!cigar_str.empty());
     }
 
-    TEST_CASE("globalAlignMM2 - 单个锚点") {
+    TEST_CASE("globalAlignMM2 - Single anchor") {
         std::string ref = "ACGTACGTACGT";
         std::string query = "ACGTACGTACGT";
 
@@ -1444,7 +1444,7 @@ TEST_SUITE("align_perf") {
         CHECK(qry_len == query.size());
     }
 
-    TEST_CASE("globalAlignMM2 - 多个锚点形成链") {
+    TEST_CASE("globalAlignMM2 - Multiple anchors form a chain") {
         std::string ref = "ACGTACGTACGTACGTACGT";  // 20bp
         std::string query = "ACGTACGTACGTACGTACGT"; // exact match
 
@@ -1497,7 +1497,7 @@ TEST_SUITE("align_perf") {
         CHECK(qry_len == query.size());
     }
 
-    TEST_CASE("globalAlignMM2 - 锚点间有间隙（小间隙）") {
+    TEST_CASE("globalAlignMM2 - Gaps between anchors (small gaps)") {
         std::string ref =   "AAAA----CCCC----GGGG";  // 20bp (12bp after removing '-')
         std::string query = "AAAATTTTCCCCTTTTGGGG";  // 20bp
 
@@ -1558,7 +1558,7 @@ TEST_SUITE("align_perf") {
         CHECK(has_insertion);
     }
 
-    TEST_CASE("globalAlignMM2 - 锚点间有大间隙（测试自适应策略）") {
+    TEST_CASE("globalAlignMM2 - Large gaps between anchors (adaptive strategy test)") {
         // Create a 1000bp reference sequence
         std::string ref = generateRandomDNA(1000, 5000);
         std::string query = ref;  // Complete match first
@@ -1605,7 +1605,7 @@ TEST_SUITE("align_perf") {
         CHECK(qry_len == query.size());
     }
 
-    TEST_CASE("globalAlignMM2 - 与 globalAlignKSW2 结果一致性（无锚点）") {
+    TEST_CASE("globalAlignMM2 - Result consistency with globalAlignKSW2 (no anchors)") {
         std::string ref = generateRandomDNA(500, 6000);
         std::string query = mutateSequence(ref, 0.02, 0.01, 6001);
 
@@ -1723,7 +1723,7 @@ TEST_SUITE("align") {
         constexpr int NUM_TESTS = 50;
         constexpr size_t SEQ_LEN = 5000;
 
-        std::cout << "\n========== 高相似度比对准确性测试 (500bp, " << NUM_TESTS << " 次) ==========\n";
+        std::cout << "\n========== High-similarity alignment accuracy test (500bp, " << NUM_TESTS << " runs) ==========\n";
 
         struct AccuracyStats {
             size_t total_tests = 0;
@@ -1801,17 +1801,17 @@ TEST_SUITE("align") {
                 }
             }
 
-            std::cout << "\n相似度 " << (similarity * 100) << "%:\n";
-            std::cout << "  [锚点] 平均=" << (total_anchors / NUM_TESTS)
-                      << ", 最小=" << (min_anchors == std::numeric_limits<size_t>::max() ? 0 : min_anchors)
-                      << ", 最大=" << max_anchors << "\n";
+            std::cout << "\nSimilarity " << (similarity * 100) << "%:\n";
+            std::cout << "  [Anchors] Avg=" << (total_anchors / NUM_TESTS)
+                      << ", Min=" << (min_anchors == std::numeric_limits<size_t>::max() ? 0 : min_anchors)
+                      << ", Max=" << max_anchors << "\n";
             for (const auto& [name, stats] : algorithm_stats) {
                 double accuracy = 100.0 * stats.valid_cigars / stats.total_tests;
                 double avg_dist = stats.avg_edit_dist / stats.total_tests;
                 std::cout << "  " << std::setw(6) << name
-                          << ": 准确率=" << std::fixed << std::setprecision(1) << accuracy << "%"
-                          << ", 平均编辑距离=" << std::setprecision(2) << avg_dist
-                          << ", 完美匹配=" << stats.perfect_match << "/" << stats.total_tests << "\n";
+                          << ": Accuracy=" << std::fixed << std::setprecision(1) << accuracy << "%"
+                          << ", Avg edit distance=" << std::setprecision(2) << avg_dist
+                          << ", Perfect matches=" << stats.perfect_match << "/" << stats.total_tests << "\n";
             }
         }
 
@@ -1825,7 +1825,7 @@ TEST_SUITE("align") {
         constexpr int NUM_TESTS = 50;
         constexpr size_t SEQ_LEN = 5000;
 
-        std::cout << "\n========== 低相似度比对准确性测试 (500bp, " << NUM_TESTS << " 次) ==========\n";
+        std::cout << "\n========== Low-similarity alignment accuracy test (500bp, " << NUM_TESTS << " runs) ==========\n";
 
         struct AccuracyStats {
             size_t total_tests = 0;
@@ -1893,18 +1893,18 @@ TEST_SUITE("align") {
                 }
             }
 
-            std::cout << "\n相似度 " << (similarity * 100) << "%:\n";
+            std::cout << "\nSimilarity " << (similarity * 100) << "%:\n";
             for (const auto& [name, stats] : algorithm_stats) {
                 double accuracy = 100.0 * stats.valid_cigars / stats.total_tests;
                 double avg_dist = stats.avg_edit_dist / (stats.valid_cigars > 0 ? stats.valid_cigars : 1);
                 std::cout << "  " << std::setw(6) << name
-                          << ": 准确率=" << std::fixed << std::setprecision(1) << accuracy << "%"
-                          << ", 平均编辑距离=" << std::setprecision(2) << avg_dist
-                          << ", 失败次数=" << stats.failed << "/" << stats.total_tests << "\n";
+                          << ": Accuracy=" << std::fixed << std::setprecision(1) << accuracy << "%"
+                          << ", Avg edit distance=" << std::setprecision(2) << avg_dist
+                          << ", Failures=" << stats.failed << "/" << stats.total_tests << "\n";
             }
         }
 
-        std::cout << "\n备注：低相似度时，某些算法可能因为参数限制而失败\n";
+        std::cout << "\nNote: at low similarity, some algorithms may fail because of parameter limits\n";
         std::cout << "========================================================\n\n";
     }
 

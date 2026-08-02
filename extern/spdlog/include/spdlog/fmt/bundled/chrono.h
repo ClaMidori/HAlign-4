@@ -601,7 +601,7 @@ FMT_CONSTEXPR inline auto get_units() -> const char* {
 
 enum class numeric_system {
   standard,
-  // Alternative numeric system, e.g. 十二 instead of 12 in ja_JP locale.
+  // Alternative numeric system, e.g. juuni instead of 12 in ja_JP locale.
   alternative
 };
 
