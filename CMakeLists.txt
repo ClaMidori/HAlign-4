@@ -3,6 +3,8 @@ project(HAlign4)
 
 set(CMAKE_CXX_STANDARD 20)
 option(HALIGN4_NATIVE_ARCH "Enable -march=native" OFF)
+set(HALIGN4_WFA_OFFSET_BITS "32" CACHE STRING "WFA offset width in bits (16 or 32)")
+set_property(CACHE HALIGN4_WFA_OFFSET_BITS PROPERTY STRINGS 16 32)
 
 # If the user did not specify CMAKE_BUILD_TYPE, default to Release so optimizations are enabled by default
 if(NOT DEFINED CMAKE_BUILD_TYPE)
@@ -69,6 +71,7 @@ set(CMAKE_DISABLE_FIND_PACKAGE_PkgConfig ON CACHE BOOL "Avoid PkgConfig dependen
 # WFA2-lib's OpenMP option is OFF by default. Since our top-level project enables OpenMP,
 # explicitly turn it on here so WFA_PARALLEL is enabled inside WFA2-lib.
 set(OPENMP ON CACHE BOOL "Enable OpenMP for WFA2-lib" FORCE)
+set(WFA2_OFFSET_BITS ${HALIGN4_WFA_OFFSET_BITS} CACHE STRING "WFA2 internal offset width (16 or 32)" FORCE)
 
 # Critical: only build the core library, turn off WFA2-lib's bundled benchmark/tests.
 # (These two options are added in extern/WFA2-lib/CMakeLists.txt and default to ON; we force them off here.)
@@ -78,6 +81,7 @@ set(WFA2LIB_BUILD_TESTS OFF CACHE BOOL "Do not register WFA2-lib tests" FORCE)
 add_subdirectory(extern/WFA2-lib)
 
 target_link_libraries(halign4 PRIVATE OpenMP::OpenMP_CXX wfa2::wfa2cpp_static)
+target_compile_definitions(halign4 PRIVATE HALIGN4_WFA_OFFSET_BITS=${HALIGN4_WFA_OFFSET_BITS})
 
 # Add aggressive optimization flags in Release builds (handled separately for GCC/Clang vs MSVC)
 if (MSVC)

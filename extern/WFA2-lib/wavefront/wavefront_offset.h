@@ -31,17 +31,35 @@
 
 #ifndef WAVEFRONT_OFFSET_H_
 #define WAVEFRONT_OFFSET_H_
+#include <stdint.h>
+#include <limits.h>
 
 /*
  * Wavefront Offset
  */
+#ifndef WFA_OFFSET_BITS
+#define WFA_OFFSET_BITS 32
+#endif
+
+#if WFA_OFFSET_BITS == 16
+typedef int16_t wf_offset_t;
+typedef uint16_t wf_unsigned_offset_t;
+#define WFA_WF_OFFSETS_16 1
+#define WFA_WF_OFFSETS_32 0
+#define WAVEFRONT_OFFSET_NULL (INT16_MIN/2)
+#elif WFA_OFFSET_BITS == 32
 typedef int32_t wf_offset_t;
 typedef uint32_t wf_unsigned_offset_t;
+#define WFA_WF_OFFSETS_16 0
+#define WFA_WF_OFFSETS_32 1
+#define WAVEFRONT_OFFSET_NULL (INT32_MIN/2)
+#else
+#error "Unsupported WFA_OFFSET_BITS value (expected 16 or 32)"
+#endif
 
 /*
  * Constants
  */
-#define WAVEFRONT_OFFSET_NULL (INT32_MIN/2)
 
 /*
  * Translate k and offset to coordinates h,v

@@ -12,6 +12,21 @@ extern "C" {
 
 namespace align
 {
+    namespace {
+        inline bool wfaCompactOffsetWouldOverflow(const std::string& ref, const std::string& query) {
+#if HALIGN4_WFA_OFFSET_BITS == 16
+            // Conservative bound: antidiagonal values in WFA kernels can approach ref_len + qry_len.
+            // Keep a safety margin below int16 max to avoid undefined truncation behavior in compact mode.
+            constexpr std::size_t kMaxSafeAntidiagonal = 30000;
+            return (ref.size() + query.size()) > kMaxSafeAntidiagonal;
+#else
+            (void)ref;
+            (void)query;
+            return false;
+#endif
+        }
+    } // namespace
+
     // KSW2 global alignment (end-to-end) - encode sequence and call KSW2
     cigar::Cigar_t globalAlignKSW2(const std::string& ref, const std::string& query)
     {
@@ -111,6 +126,10 @@ namespace align
     cigar::Cigar_t globalAlignWFA2(const std::string& ref,
         const std::string& query)
     {
+        if (wfaCompactOffsetWouldOverflow(ref, query)) {
+            return globalAlignKSW2(ref, query);
+        }
+
         // Build WFA2 attributes
         wavefront_aligner_attr_t attributes = wavefront_aligner_attr_default;
         attributes.distance_metric = gap_affine;

@@ -59,6 +59,8 @@ option(OPENMP "Enable OpenMP" OFF) # enables WFA_PARALLEL
 option(PROFILING "Enable profiling" OFF)
 option(ASAN "Use address sanitiser" OFF)
 option(EXTRA_FLAGS "Add optimization flags for C/C++ compiler" OFF)
+set(WFA2_OFFSET_BITS "32" CACHE STRING "Wavefront offset width (16 or 32)")
+set_property(CACHE WFA2_OFFSET_BITS PROPERTY STRINGS 16 32)
 
 # include(CheckIPOSupported) # adds lto
 # check_ipo_supported(RESULT ipo_supported OUTPUT output)
@@ -183,6 +185,8 @@ set_target_properties(wfa2_static PROPERTIES OUTPUT_NAME wfa2)
 set_target_properties(wfa2 PROPERTIES SOVERSION 0)
 target_include_directories(wfa2 PUBLIC . wavefront utils)
 target_include_directories(wfa2_static PUBLIC . wavefront utils)
+target_compile_definitions(wfa2 PRIVATE WFA_OFFSET_BITS=${WFA2_OFFSET_BITS})
+target_compile_definitions(wfa2_static PRIVATE WFA_OFFSET_BITS=${WFA2_OFFSET_BITS})
 add_library(wfa2::wfa2 ALIAS wfa2)
 add_library(wfa2::wfa2_static ALIAS wfa2_static)
 

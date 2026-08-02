@@ -32,7 +32,7 @@
 #ifndef WAVEFRONT_EXTEND_AVX_H_
 #define WAVEFRONT_EXTEND_AVX_H_
 
-#if __AVX2__
+#if __AVX2__ && WFA_WF_OFFSETS_32
 
 #include "wavefront_aligner.h"
 
@@ -75,6 +75,6 @@ bool wavefront_extend_matches_packed_endsfree_avx512(
     const int lo,
     const int hi);
 #endif
-#endif // AVX2
+#endif // AVX2 && WFA_WF_OFFSETS_32
 
 #endif /* WAVEFRONT_EXTEND_AVX_H_ */
