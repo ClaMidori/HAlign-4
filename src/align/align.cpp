@@ -9,28 +9,28 @@ extern "C" {
 #include "wavefront/wavefront_align.h"
 }
 
-// Sequence alignment algorithm wrapper: KSW2 / WFA2
-// - unified return cigar::Cigar_t (compressed format)
-// - support global alignment, extension alignment, anchor-segment alignment
+// 序列比对算法封装：KSW2 / WFA2
+// - 统一返回 cigar::Cigar_t（压缩格式）
+// - 支持全局比对、延伸比对、锚点分段比对
 
 namespace align
 {
     namespace {
-        inline bool wfaCompactOffsetWouldOverflow(const std::string& ref, const std::string& query) {
+        inline bool wfaCompactOffsetWouldOverflow(const std::string& ref,
+                                                   const std::string& query)
+        {
 #if HALIGN4_WFA_OFFSET_BITS == 16
-            // Conservative bound: antidiagonal values in WFA kernels can approach ref_len + qry_len.
-            // Keep a safety margin below int16 max to avoid undefined truncation behavior in compact mode.
             constexpr std::size_t kMaxSafeAntidiagonal = 30000;
-            return (ref.size() + query.size()) > kMaxSafeAntidiagonal;
+            return ref.size() + query.size() > kMaxSafeAntidiagonal;
 #else
             (void)ref;
             (void)query;
             return false;
 #endif
         }
-    } // namespace
+    }
 
-    // KSW2 global alignment (end-to-end) - encode sequence and call KSW2
+    // KSW2 全局比对（end-to-end）- 编码序列并调用 KSW2
     cigar::Cigar_t globalAlignKSW2(const std::string& ref, const std::string& query)
     {
         align::AlignConfig cfg;
@@ -40,7 +40,7 @@ namespace align
     cigar::Cigar_t globalAlignKSW2(const std::string& ref, const std::string& query,
                                    align::AlignConfig cfg)
     {
-        // Boundary: if any sequence empty, return pure I/D CIGAR
+        // 边界：任意一条序列为空时，直接返回纯 I / 纯 D 的 CIGAR
         if (ref.size() == 0 || query.size() == 0) {
             cigar::Cigar_t cigar;
             if (ref.size() == 0 && query.size() > 0) {
@@ -51,7 +51,7 @@ namespace align
             return cigar;
         }
 
-        // Encode sequence: DNA5 (A/C/G/T/N -> 0..4)
+        // 编码序列：DNA5 (A/C/G/T/N -> 0..4)
         std::vector<uint8_t> ref_enc(ref.size());
         std::vector<uint8_t> qry_enc(query.size());
 
@@ -65,16 +65,6 @@ namespace align
 
         // 改为调用 ksw_gg2_sse：该接口是标准全局比对（Needleman-Wunsch），
         // 直接返回完整路径 CIGAR，不再依赖 extz 的 zdrop/end_bonus/flag 行为。
-        int m_cigar = 0;
-        int n_cigar = 0;
-        uint32_t* cigar_raw = nullptr;
-        // ksw_gg2_sse(nullptr,
-        //             static_cast<int>(qry_enc.size()), qry_enc.data(),
-        //             static_cast<int>(ref_enc.size()), ref_enc.data(),
-        //             static_cast<int8_t>(cfg.alphabet_size), cfg.mat,
-        //             static_cast<int8_t>(cfg.gap_open), static_cast<int8_t>(cfg.gap_extend),
-        //             cfg.band_width,
-        //             &m_cigar, &n_cigar, &cigar_raw);
         ksw_extz_t ez{};
         ksw_extz2_sse(nullptr,
         static_cast<int>(qry_enc.size()), qry_enc.data(),
@@ -84,35 +74,28 @@ namespace align
         cfg.band_width, cfg.zdrop, cfg.end_bonus,
          cfg.flag, &ez);
 
-        // 拷贝并释放 CIGAR：保持对外返回类型不变，避免调用方感知底层算法替换。
-        // cigar::Cigar_t cigar;
-        // if (n_cigar > 0 && cigar_raw != nullptr) {
-        //     cigar.reserve(static_cast<std::size_t>(n_cigar));
-        //     for (int i = 0; i < n_cigar; ++i)
-        //         cigar.push_back(cigar_raw[i]);
-        // }
         cigar::Cigar_t cigar;
         cigar.reserve(ez.n_cigar);
         for (int i = 0; i < ez.n_cigar; ++i)
             cigar.push_back(ez.cigar[i]);
 
-        free(cigar_raw);
+        free(ez.cigar);
         return cigar;
     }
 
-    // KSW2 extension alignment - use zdrop and EXTZ_ONLY flags
+    // KSW2 延伸比对 - 使用 zdrop 和 EXTZ_ONLY 标志
     cigar::Cigar_t extendAlignKSW2(const std::string& ref,
         const std::string& query,
         int zdrop)
     {
-        // Encode sequence
+        // 编码序列
         std::vector<uint8_t> ref_enc(ref.size());
         std::vector<uint8_t> qry_enc(query.size());
         for (size_t i = 0; i < ref.size(); ++i) ref_enc[i] = align::ScoreChar2Idx[(uint8_t)ref[i]];
         for (size_t i = 0; i < query.size(); ++i) qry_enc[i] = align::ScoreChar2Idx[(uint8_t)query[i]];
 
-        // Configure params: EXTZ_ONLY + RIGHT + APPROX_DROP for extension
-        align::KSW2AlignConfig cfg;
+        // 配置参数：EXTZ_ONLY + RIGHT + APPROX_DROP for extension
+        align::AlignConfig cfg;
         cfg.mat = align::dna5_simd_mat;
         cfg.zdrop = zdrop;
         cfg.flag = KSW_EZ_EXTZ_ONLY | KSW_EZ_RIGHT | KSW_EZ_APPROX_DROP;
@@ -122,7 +105,7 @@ namespace align
         cfg.gap_extend = 2;
         cfg.band_width = align::auto_band(ref.size(), query.size());
 
-        // Call KSW2
+        // 调用 KSW2
         ksw_extz_t ez{};
         ksw_extz2_sse(nullptr,
             static_cast<int>(qry_enc.size()), qry_enc.data(),
@@ -132,7 +115,7 @@ namespace align
             cfg.band_width, cfg.zdrop, cfg.end_bonus,
             cfg.flag, &ez);
 
-        // Copy and free CIGAR
+        // 拷贝并释放 CIGAR
         cigar::Cigar_t cigar;
         cigar.reserve(ez.n_cigar);
         for (int i = 0; i < ez.n_cigar; ++i)
@@ -143,7 +126,7 @@ namespace align
     }
 
 
-    // WFA2 global alignment - use gap_affine mode
+    // WFA2 全局比对 - 使用 gap_affine 模式
     cigar::Cigar_t globalAlignWFA2(const std::string& ref,
         const std::string& query)
     {
@@ -151,7 +134,7 @@ namespace align
             return globalAlignKSW2(ref, query);
         }
 
-        // Build WFA2 attributes
+        // 构建 WFA2 属性
         wavefront_aligner_attr_t attributes = wavefront_aligner_attr_default;
         attributes.distance_metric = gap_affine;
         attributes.affine_penalties.mismatch = 3;
@@ -159,11 +142,11 @@ namespace align
         attributes.affine_penalties.gap_extension = 1;
         attributes.memory_mode = wavefront_memory_high;
 
-        // Create and run aligner
+        // 创建并执行 aligner
         wavefront_aligner_t* const wf_aligner = wavefront_aligner_new(&attributes);
         wavefront_align(wf_aligner, ref.c_str(), ref.length(), query.c_str(), query.length());
 
-        // Extract CIGAR
+        // 提取 CIGAR
         uint32_t* cigar_buffer = nullptr;
         int cigar_length = 0;
         cigar_get_CIGAR(wf_aligner->cigar, false, &cigar_buffer, &cigar_length);
@@ -178,14 +161,14 @@ namespace align
     }
 
     // ------------------------------------------------------------------
-    // extendAlignWFA2: WFA2 extension alignment
+    // extendAlignWFA2：WFA2 延伸比对
     // ------------------------------------------------------------------
-    // WFA2 extension alignment (ends-free extension):
-    // - typically used to extend outward from seed position, quickly get local alignment
-    // - configurable zdrop threshold, control early termination during extension
+    // WFA2 的延伸比对（ends-free extension）：
+    // - 通常用于从种子位置向外延伸，快速获得局部比对结果
+    // - 可配置 zdrop 阈值，控制延伸过程中的提前终止
     //
-    // This implementation uses high-memory mode of wavefront_aligner_attr_default:
-    // - suits long sequence alignment, but may cause high memory usage
+    // 本实现使用 wavefront_aligner_attr_default 的高内存模式：
+    // - 适合长序列比对，但可能导致较高的内存占用
     // ------------------------------------------------------------------
     // cigar::Cigar_t extendAlignWFA2(const std::string& ref,
     //     const std::string& query, int zdrop)
@@ -213,7 +196,7 @@ namespace align
     //     // Retrieve the CIGAR string from the wavefront aligner.
     //     cigar_get_CIGAR(wf_aligner->cigar, true, &cigar_buffer, &cigar_length);
     //
-    //     /* ---------- 4. Copy / Free CIGAR ---------- */
+    //     /* ---------- 4. 拷贝 / 释放 CIGAR ---------- */
     //     cigar::Cigar_t cigar;
     //
     //     for (int i = 0; i < cigar_length; ++i)
@@ -224,8 +207,6 @@ namespace align
     //     return cigar;
     // }
 
-    // Anchor-based segment global alignment (minimap2 style)
-    // - split by anchors into segments, align each segment globally, merge results
     cigar::Cigar_t globalAlignPSW(const ProfileMatrix& ref, const std::string& query, align::AlignConfig cfg)
     {
         // 边界：任意一条序列为空时，直接返回纯 I / 纯 D 的 CIGAR
@@ -287,7 +268,7 @@ namespace align
         const std::size_t ref_len = ref.size();
         const std::size_t qry_len = query.size();
 
-        // Chain anchors: get best chain
+        // 链化锚点：获取最佳链
         anchor::Anchors sorted_anchors = anchors;
         anchor::ChainParams chain_params = anchor::default_chain_params();
         anchor::Anchors chain_anchors = anchor::chainAnchors(sorted_anchors, chain_params);
@@ -295,7 +276,7 @@ namespace align
             return globalAlignKSW2(ref, query);
         }
 
-        // Sort by query coordinate
+        // 按 query 坐标排序
         std::sort(chain_anchors.begin(), chain_anchors.end(),
                   [](const anchor::Anchor& a, const anchor::Anchor& b) {
                       if (a.pos_qry != b.pos_qry) return a.pos_qry < b.pos_qry;
@@ -309,8 +290,8 @@ namespace align
         std::size_t qry_pos = 0;
 
         auto append_segment = [&](std::size_t ref_start, std::size_t ref_end,
-                                  std::size_t qry_start, std::size_t qry_end, align::KSW2AlignConfig seg_cfg) {
-            // Boundary clipping
+                                  std::size_t qry_start, std::size_t qry_end, align::AlignConfig seg_cfg) {
+            // 边界裁剪
             ref_start = std::min(ref_start, ref_len);
             ref_end = std::min(ref_end, ref_len);
             qry_start = std::min(qry_start, qry_len);
@@ -324,7 +305,7 @@ namespace align
 
             cigar::Cigar_t seg_cigar = globalAlignKSW2(seg_ref, seg_qry, seg_cfg);
 
-            // Use CIGAR to infer consumed length
+            // 用 CIGAR 反推消耗长度
             const std::size_t seg_ref_len = seg_ref.size();
             const std::size_t seg_qry_len = seg_qry.size();
             const std::size_t c_ref = cigar::getRefLength(seg_cigar);
@@ -335,7 +316,7 @@ namespace align
                 spdlog::warn("globalAlignSeq2Seq(seg): segment cigar mismatch (expected ref:{}/qry:{}, got ref:{}/qry:{}); forcing robust fallback for this segment",
                              seg_ref_len, seg_qry_len, c_ref, c_qry);
 #endif
-                // Fallback strategy: Query all I, Ref all D
+                // 兜底策略：Query 全 I、Ref 全 D
                 cigar::Cigar_t forced_cigar;
                 if (seg_qry_len > 0) {
                     forced_cigar.push_back(cigar::cigarToInt('I', static_cast<uint32_t>(seg_qry_len)));
@@ -356,13 +337,13 @@ namespace align
             qry_pos = qry_start + c_qry;
         };
 
-        // Left end: start to first anchor
+        // 左端：起点到第一个锚点
         {
             const auto& first = chain_anchors.front();
             append_segment(ref_pos, first.pos_ref, qry_pos, first.pos_qry, first_cfg);
         }
 
-        // Per anchor: handle span and gap
+        // 逐锚点：处理 span 和 gap
         for (std::size_t i = 0; i < chain_anchors.size(); ++i) {
             const auto& a = chain_anchors[i];
 
@@ -379,10 +360,10 @@ namespace align
             }
         }
 
-        // Right end: last anchor to end
+        // 右端：最后一个锚点到末尾
         append_segment(ref_pos, ref_len, qry_pos, qry_len, cfg);
 
-        // Final consistency check
+        // 最终一致性检查
         const std::size_t total_ref = cigar::getRefLength(result);
         const std::size_t total_qry = cigar::getQueryLength(result);
         if (total_ref != ref_len || total_qry != qry_len) {
@@ -392,6 +373,13 @@ namespace align
         }
 
         return result;
+    }
+
+    cigar::Cigar_t globalAlignMM2(const std::string& ref,
+                                  const std::string& query,
+                                  const anchor::Anchors& anchors)
+    {
+        return globalAlignSeq2Seq(ref, query, anchors);
     }
 
     cigar::Cigar_t globalAlignSeq2Profile(const ProfileMatrix& ref,

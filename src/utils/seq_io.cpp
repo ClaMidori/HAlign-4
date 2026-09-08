@@ -1,8 +1,8 @@
-// Sequence file I/O module: FASTA/FASTQ/SAM read/write
-// - KseqReader: high-performance FASTA/FASTQ reader
-// - SeqWriter: FASTA/SAM writer (supports buffered batching)
-// - SamReader: SAM format reader
-// - Helper functions: format conversion and record construction
+// 序列文件 I/O 模块：FASTA/FASTQ/SAM 读写
+// - KseqReader：高性能 FASTA/FASTQ 读取器
+// - SeqWriter：FASTA/SAM 写入器（支持批量缓冲）
+// - SamReader：SAM 格式读取器
+// - 辅助函数：格式转换、记录构建
 
 #include "utils.h"
 #include <cstdio>   // fopen, fclose, fread, setvbuf
@@ -12,7 +12,7 @@
 #include <spdlog/spdlog.h>
 #endif
 
-// zlib support: optional gzip-compressed file reading
+// zlib 支持：可选的 gzip 压缩文件读取
 #if __has_include(<zlib.h>)
     #include <zlib.h>
     #define HALIGN4_HAVE_ZLIB 1
@@ -22,7 +22,7 @@
 
 #include "kseq.h"
 
-// kseq initialization: choose read function depending on zlib availability
+// kseq 初始化：根据是否有 zlib 选择不同的 read 函数
 #if HALIGN4_HAVE_ZLIB
     KSEQ_INIT(gzFile, gzread)
 #else
@@ -36,7 +36,7 @@
 
 namespace seq_io
 {
-    // KseqReader::Impl struct: wraps the underlying file handle and kseq object
+    // KseqReader::Impl 结构体：封装底层文件描述符和 kseq 对象
     struct KseqReader::Impl
     {
 #if HALIGN4_HAVE_ZLIB
@@ -47,23 +47,23 @@ namespace seq_io
         kseq_t* seq{nullptr};
         FilePath file_path;
         char* io_buf{nullptr};
-        std::size_t io_buf_size{8 << 20};  // default 8 MiB
+        std::size_t io_buf_size{8 << 20};  // 默认 8 MiB
     };
 
-    // Error handling: build an exception object that includes the file path
+    // 错误处理：构建包含文件路径的异常对象
     static std::runtime_error makeIoError(const std::string& msg, const FilePath& p)
     {
         return std::runtime_error(msg + ": " + p.string());
     }
 
-    // String conversion: convert a kstring_t to std::string
+    // 字符串转换：将 kstring_t 转换为 std::string
     static void assignKstring(std::string& dst, const kstring_t& ks)
     {
         if (ks.s && ks.l > 0) dst.assign(ks.s, ks.l);
         else dst.clear();
     }
 
-    // KseqReader constructor
+    // KseqReader 构造函数
     KseqReader::KseqReader(const FilePath& file_path)
         : impl_(std::make_unique<Impl>())
     {
@@ -82,7 +82,7 @@ namespace seq_io
             throw makeIoError("failed to open input", file_path);
         }
 
-        // Set a large buffer to speed up I/O
+        // 设置大缓冲区以加速 I/O
         impl_->io_buf = static_cast<char*>(std::malloc(impl_->io_buf_size));
         if (impl_->io_buf) {
             if (setvbuf(impl_->fp, impl_->io_buf, _IOFBF, static_cast<size_t>(impl_->io_buf_size)) != 0) {
@@ -99,7 +99,7 @@ namespace seq_io
         }
     }
 
-    // KseqReader destructor: free resources in the correct order
+    // KseqReader 析构函数：按正确顺序释放资源
     KseqReader::~KseqReader()
     {
         if (!impl_) return;
@@ -126,11 +126,11 @@ namespace seq_io
 #endif
     }
 
-    // Move semantics
+    // 移动语义
     KseqReader::KseqReader(KseqReader&& other) noexcept = default;
     KseqReader& KseqReader::operator=(KseqReader&& other) noexcept = default;
 
-    // Read next FASTA/FASTQ record
+    // 读取下一条 FASTA/FASTQ 记录
     bool KseqReader::next(SeqRecord& rec)
     {
         if (!impl_ || !impl_->seq) {
@@ -144,6 +144,11 @@ namespace seq_io
             assignKstring(rec.desc, impl_->seq->comment);
             assignKstring(rec.seq,  impl_->seq->seq);
             rec.n_num = 0;
+            for (const char base : rec.seq) {
+                if (base == 'N' || base == 'n') {
+                    ++rec.n_num;
+                }
+            }
             return true;
         }
 
@@ -155,7 +160,7 @@ namespace seq_io
                                  " for file: " + impl_->file_path.string());
     }
 
-    // SeqWriter Constructor
+    // SeqWriter 构造函数
     SeqWriter::SeqWriter(const FilePath& file_path, std::size_t line_width)
         : SeqWriter(file_path, Format::fasta, line_width, 8ULL * 1024ULL * 1024ULL)
     {}
@@ -193,16 +198,16 @@ namespace seq_io
         }
     }
 
-    // Flush the buffer and release capacity
+    // 刷新缓冲区并释放容量
     void SeqWriter::flushBuffer_()
     {
         if (buffer_.empty()) return;
         out_.write(buffer_.data(), static_cast<std::streamsize>(buffer_.size()));
         buffer_.clear();
-        buffer_.shrink_to_fit();  // release unused capacity
+        buffer_.shrink_to_fit();  // 释放未使用容量
     }
 
-    // Append content to the buffer or write directly
+    // 追加内容到缓冲区或直接写入
     void SeqWriter::appendOrFlush_(std::string_view s)
     {
         if (!out_) throw std::runtime_error("SeqWriter output stream is not ready");
@@ -218,7 +223,7 @@ namespace seq_io
         }
     }
 
-    // Append content with optional line wrapping
+    // 追加内容并支持行折叠
     void SeqWriter::appendWrapped_(std::string& dst, std::string_view s, std::size_t width)
     {
         if (width == 0) {
@@ -233,7 +238,7 @@ namespace seq_io
         }
     }
 
-    // Write a FASTA record
+    // 写入 FASTA 记录
     void SeqWriter::writeFasta(const SeqRecord& rec)
     {
         if (format_ != Format::fasta) {
@@ -269,7 +274,7 @@ namespace seq_io
         appendOrFlush_(recordbuf);
     }
 
-    // Write SAM header
+    // 写入 SAM header
     void SeqWriter::writeSamHeader(std::string_view header_text)
     {
         if (format_ != Format::sam) {
@@ -286,7 +291,7 @@ namespace seq_io
         sam_header_written_ = true;
     }
 
-    // Write a SAM record
+    // 写入 SAM 记录
     void SeqWriter::writeSam(const SamRecord& r)
     {
         if (format_ != Format::sam) {
@@ -327,7 +332,7 @@ namespace seq_io
         appendOrFlush_(line);
     }
 
-    // Flush output
+    // 刷新输出
     void SeqWriter::flush()
     {
         if (!out_) return;
@@ -335,7 +340,7 @@ namespace seq_io
         out_.flush();
     }
 
-    // Build a SAM record
+    // 构建 SAM 记录
     SamRecord makeSamRecord(
         const SeqRecord& query,
         std::string_view ref_name,
@@ -360,7 +365,7 @@ namespace seq_io
         return sam_rec;
     }
 
-    // SamReader::Impl struct
+    // SamReader::Impl 结构体
     struct SamReader::Impl
     {
         std::ifstream in_;
@@ -369,7 +374,7 @@ namespace seq_io
         char* io_buf_{nullptr};
         std::size_t io_buf_size_{0};
 
-        // Store field copies to avoid dangling string_view references
+        // 存储字段副本，避免 string_view 悬空
         std::string qname_storage_;
         std::string rname_storage_;
         std::string cigar_storage_;
@@ -379,7 +384,7 @@ namespace seq_io
         std::string opt_storage_;
     };
 
-    // SamReader constructor
+    // SamReader 构造函数
     SamReader::SamReader(const FilePath& file_path, std::size_t buffer_size)
         : impl_(std::make_unique<Impl>())
     {
@@ -391,7 +396,7 @@ namespace seq_io
             throw makeIoError("failed to open SAM file", file_path);
         }
 
-        // Increase input buffer size
+        // 提升输入缓冲区大小
         if (buffer_size > 0) {
             impl_->io_buf_ = static_cast<char*>(std::malloc(buffer_size));
             if (impl_->io_buf_) {
@@ -402,7 +407,7 @@ namespace seq_io
         impl_->line_buffer_.reserve(4096);
     }
 
-    // SamReader destructor
+    // SamReader 析构函数
     SamReader::~SamReader()
     {
         if (!impl_) return;
@@ -417,11 +422,11 @@ namespace seq_io
         }
     }
 
-    // Move semantics
+    // 移动语义
     SamReader::SamReader(SamReader&& other) noexcept = default;
     SamReader& SamReader::operator=(SamReader&& other) noexcept = default;
 
-    // Read next SAM record
+    // 读取下一条 SAM 记录
     bool SamReader::next(SamRecord& rec)
     {
         if (!impl_) {
@@ -431,12 +436,12 @@ namespace seq_io
         while (std::getline(impl_->in_, impl_->line_buffer_)) {
             const std::string_view line(impl_->line_buffer_);
 
-            // Skip empty lines and header lines
+            // 跳过空行和 header 行
             if (line.empty() || line[0] == '@') {
                 continue;
             }
 
-            // Parse required SAM fields (11 columns)
+            // 解析 SAM 必需字段 (11 列)
             std::array<std::string_view, 11> f{};
             std::size_t field_idx = 0;
             std::size_t start = 0;
@@ -454,13 +459,13 @@ namespace seq_io
                     "invalid SAM record (missing required fields): " + impl_->file_path_.string());
             }
 
-            // Optional fields
+            // 可选字段
             std::string_view opt_fields;
             if (start < line.size()) {
                 opt_fields = line.substr(start);
             }
 
-            // Populate SamRecord
+            // 填充 SamRecord
             rec.qname.assign(f[0].data(), f[0].size());
 
             try {
@@ -514,7 +519,7 @@ namespace seq_io
         return false;
     }
 
-    // Convert SAM to FASTA
+    // SAM 转 FASTA
     void convertSamToFasta(const FilePath& sam_path, const FilePath& fasta_path, std::size_t line_width)
     {
         SamReader reader(sam_path);
@@ -537,4 +542,3 @@ namespace seq_io
     }
 
 }  // namespace seq_io
-
