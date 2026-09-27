@@ -33,16 +33,64 @@ Source installation: see [`docs/install.md`](docs/install.md).
 
 ---
 
+## Install from source
+
+Requirements: CMake >= 3.18, C++20 compiler, OpenMP, and Make or Ninja. `zlib` is recommended for gzipped FASTA input. `libcurl` is optional for URL input.
+
+```bash
+git clone https://github.com/ClaMidori/HAlign-4.git
+cd HAlign-4
+```
+
+Build normal mode:
+
+```bash
+cmake -S . -B build-original \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DHALIGN4_ENABLE_OFFSET_COMPACT=OFF
+cmake --build build-original -j
+```
+
+Build compact mode:
+
+```bash
+cmake -S . -B build-compact \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DHALIGN4_ENABLE_OFFSET_COMPACT=ON
+cmake --build build-compact -j
+```
+
+Compact mode enables experimental WFA offset compaction. Normal mode uses standard WFA2 behavior. Keep separate build directories when switching modes.
+
+Verify either binary:
+
+```bash
+./build-original/halign4 --version
+./build-compact/halign4 --version
+```
+
+See [`docs/install.md`](docs/install.md) for dependencies and external MSA tools.
+
+---
+
 ## Quick start
 
 The repository includes small datasets under `test/data/` which are perfect for a first run.
 
-Minimal example:
+Normal mode:
 
 ```bash
-halign4 \
+./build-original/halign4 \
   -i test/data/mt1x.fasta.gz \
-  -o mt1x.out.fasta
+  -o mt1x-normal.fasta
+```
+
+Compact mode:
+
+```bash
+./build-compact/halign4 \
+  -i test/data/mt1x.fasta.gz \
+  -o mt1x-compact.fasta
 ```
 
 ---
@@ -64,7 +112,20 @@ For the full parameter list and detailed examples, see [`docs/usage.md`](docs/us
 
 ## Tests
 
-See [`docs/test.md`](docs/test.md) for how to run tests under the `test/` directory.
+Run the standard test suite:
+
+```bash
+cd test
+./run_tests.sh -t Release -j 8
+```
+
+Run performance tests:
+
+```bash
+./run_tests.sh -t Release --perf
+```
+
+See [`docs/test.md`](docs/test.md) for filters, clean builds, and advanced CTest usage.
 
 ---
 
@@ -73,4 +134,3 @@ See [`docs/test.md`](docs/test.md) for how to run tests under the `test/` direct
 If you use HAlign-4 in academic work, please cite:
 
 HAlign 4: a new strategy for rapidly aligning millions of sequences. Bioinformatics, 2024, 40(12): btae718. https://doi.org/10.1093/bioinformatics/btae718
-

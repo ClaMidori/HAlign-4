@@ -3,6 +3,7 @@ project(HAlign4Tests LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+option(HALIGN4_ENABLE_OFFSET_COMPACT "Enable WFA offset compaction in tests" OFF)
 
 
 include(CTest)  # Provide ctest infrastructure and add_test support
@@ -84,6 +85,7 @@ if (ZLIB_FOUND)
 endif()
 
 target_compile_definitions(halign4_test_support PUBLIC
+        HALIGN4_ENABLE_OFFSET_COMPACT=$<BOOL:${HALIGN4_ENABLE_OFFSET_COMPACT}>
         $<$<CONFIG:Debug>:_DEBUG>
 )
 
@@ -188,7 +190,6 @@ add_test(NAME align_perf
 # Anchor correctness test (quick)
 add_test(NAME anchor
         COMMAND halign4_tests --test-suite=anchor)
-
 
 
 

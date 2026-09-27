@@ -12,14 +12,45 @@ This document explains the command-line arguments of `halign4` and provides runn
 
 ---
 
+## Build modes
+
+HAlign-4 supports two CMake build modes:
+
+- **Normal mode**: standard WFA2 behavior.
+- **Compact mode**: experimental WFA offset compaction.
+
+Build each mode in a separate directory:
+
+```bash
+cmake -S . -B build-original \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DHALIGN4_ENABLE_OFFSET_COMPACT=OFF
+cmake --build build-original -j
+
+cmake -S . -B build-compact \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DHALIGN4_ENABLE_OFFSET_COMPACT=ON
+cmake --build build-compact -j
+```
+
+Use `./build-original/halign4` for normal mode or `./build-compact/halign4` for compact mode in commands below.
+
 ## Quick start
 
 Minimal run (uses built-in defaults):
 
 ```bash
-./build/halign4 \
+./build-original/halign4 \
   -i test/data/mt1x.fasta.gz \
-  -o out.fasta
+  -o out-normal.fasta
+```
+
+Same input in compact mode:
+
+```bash
+./build-compact/halign4 \
+  -i test/data/mt1x.fasta.gz \
+  -o out-compact.fasta
 ```
 
 ---
@@ -163,7 +194,7 @@ Goal:
 Run:
 
 ```bash
-./build/halign4 \
+./build-original/halign4 \
   -i test/data/mt1x.fasta.gz \
   -o mt1x.out.fasta \
    -w mt1x.work \
@@ -191,7 +222,7 @@ Background:
 #### 2.1 Keep all reference sequences ungapped (`--keep-length`)
 
 ```bash
-./build/halign4 \
+./build-original/halign4 \
   -i test/data/covid-test.fasta.gz \
   -o covid.out.fasta \
   -w covid.work \

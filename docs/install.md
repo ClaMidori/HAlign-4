@@ -45,22 +45,43 @@ sudo apt-get install -y \
 ### 1.2 Clone and build
 
 ```bash
-git clone https://github.com/pinglu-zhang/HAlign-4.git
+git clone https://github.com/ClaMidori/HAlign-4.git
 cd HAlign-4
 
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build -j
+cmake -S . -B build-original \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DHALIGN4_ENABLE_OFFSET_COMPACT=OFF
+cmake --build build-original -j
 ```
 
 The binary will be:
 
-- `build/halign4`
+- `build-original/halign4`
 
-### 1.3 Quick sanity check
+### 1.3 Build compact mode
+
+Compact mode enables experimental WFA offset compaction:
 
 ```bash
-./build/halign4 --version
-./build/halign4 -h
+cmake -S . -B build-compact \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DHALIGN4_ENABLE_OFFSET_COMPACT=ON
+cmake --build build-compact -j
+```
+
+The binary will be:
+
+- `build-compact/halign4`
+
+Keep `build-original/` and `build-compact/` separate. Do not reuse one build directory while changing `HALIGN4_ENABLE_OFFSET_COMPACT`.
+
+### 1.4 Quick sanity check
+
+```bash
+./build-original/halign4 --version
+./build-original/halign4 -h
+./build-compact/halign4 --version
+./build-compact/halign4 -h
 ```
 
 ---
@@ -171,4 +192,3 @@ minipoa -h
 
 - CLI usage & examples: [`docs/usage.md`](usage.md)
 - Tests: [`docs/test.md`](test.md)
-

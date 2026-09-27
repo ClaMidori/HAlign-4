@@ -21,6 +21,31 @@ What it does:
 - builds the test binaries
 - runs `ctest` (verbose by default)
 
+The test suite validates shared project behavior. To test both runtime modes, build and run it once for each configuration:
+
+```bash
+cd ..
+cmake -S test -B build-test-original \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DHALIGN4_ENABLE_OFFSET_COMPACT=OFF
+cmake --build build-test-original -j
+ctest --test-dir build-test-original -V
+
+cmake -S test -B build-test-compact \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DHALIGN4_ENABLE_OFFSET_COMPACT=ON
+cmake --build build-test-compact -j
+ctest --test-dir build-test-compact -V
+```
+
+The helper script uses its own test build directory and does not replace `build-original` or `build-compact`.
+
+Performance cases can be slow and include hardware-dependent timing thresholds. Run the correctness tests without performance cases when validating a build on a constrained or shared machine:
+
+```bash
+ctest --test-dir build-test-compact -V -E 'align_perf'
+```
+
 ---
 
 ## 2. Common workflows
@@ -65,6 +90,18 @@ cd test
 ./run_tests.sh --clean -t Release
 ```
 
+The helper script does not expose project-specific CMake options. Configure compact-mode tests directly:
+
+```bash
+cmake -S test -B build-test-compact \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DHALIGN4_ENABLE_OFFSET_COMPACT=ON
+cmake --build build-test-compact -j
+ctest --test-dir build-test-compact -V
+```
+
+For normal mode, use `-DHALIGN4_ENABLE_OFFSET_COMPACT=OFF` or omit the option.
+
 ---
 
 ## 3. Run CTest directly (advanced)
@@ -85,4 +122,3 @@ The repository includes small datasets that are useful for smoke tests and docum
 - `test/data/covid-ref.fasta.gz` / `test/data/covid-test.fasta.gz`
 
 For runnable CLI examples, see [`docs/usage.md`](usage.md).
-
