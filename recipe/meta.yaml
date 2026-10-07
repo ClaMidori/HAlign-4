@@ -27,7 +27,7 @@ requirements:
     - libcurl
     - llvm-openmp
     - mafft
-    - minipoa
+    - abpoa
     - clustalo
 
 test:

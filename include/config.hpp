@@ -41,11 +41,15 @@
 #define LOGGER_FILE "halign4.log"         // Default log filename (relative to working directory)
 #define CONFIG_FILE "config.json"         // Default config file path (if external config is supported in the future)
 
-const std::string MINIPOA_CMD = "minipoa {input} -S -t {thread} -r1 > {output}"; // Minipoa multi-sequence alignment command template example
+// ------------------------------------------------------------------
+// MSA Tool Command Templates
+// ------------------------------------------------------------------
+// Usando o wrapper em Python para fatiar sequências ultralongas e evitar OOM (8TB RAM)
+const std::string ABPOA_CMD = "python3 chunked_msa.py {input} {output}";
 const std::string MAFFT_MSA_CMD = "mafft --thread {thread} --auto {input} > {output}"; // MAFFT multi-sequence alignment command template example
 const std::string CLUSTALO_MSA_CMD = "clustalo -i {input} -o {output} --threads {thread}"; // Clustal Omega multi-sequence alignment command template example
 
-const std::string DEFAULT_MSA_CMD = MINIPOA_CMD; // Default multi-sequence alignment command template
+const std::string DEFAULT_MSA_CMD = ABPOA_CMD; // Default multi-sequence alignment command template
 
 // ------------------------------------------------------------------
 // resolveMsaCmdTemplate: Parse the content entered by the user in -p/--msa-cmd into the "final command template".
@@ -73,7 +77,8 @@ inline std::string resolveMsaCmdTemplate(const std::string& user_value) {
         c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
     }
 
-    if (v == "minipoa") return MINIPOA_CMD;
+    // Updated to catch 'abpoa' (or legacy 'minipoa' to not break existing user scripts)
+    if (v == "abpoa" || v == "minipoa") return ABPOA_CMD;
     if (v == "mafft") return MAFFT_MSA_CMD;
     if (v == "clustalo") return CLUSTALO_MSA_CMD;
 
@@ -272,7 +277,7 @@ static void setupCli(CLI::App& app, Options& opt) {
     // - Default uses minipoa (equivalent to -p minipoa if not passed);
     // - This command will do a tiny.fasta smoke test during parameter validation; if the environment lacks this tool, it will directly error.
     app.add_option("-p,--msa-cmd", opt.msa_cmd,
-                   "High-quality MSA method: keyword {minipoa|mafft|clustalo} or a custom command template containing {input} and {output} (optional {thread}).");
+                   "High-quality MSA method: keyword {abpoa|mafft|clustalo} or a custom command template containing {input} and {output} (optional {thread}).");
 
     // -t/--thread: number of threads.
     // Note:
