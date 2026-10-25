@@ -22,9 +22,10 @@
 #include <array>
 #include <cstdint>
 
-#if __has_include(<curl/curl.h>)
+// CMake is the single source of truth for optional library availability.
+// Finding a header alone does not guarantee a linkable libcurl.
+#if defined(HALIGN4_HAVE_LIBCURL) && HALIGN4_HAVE_LIBCURL
 #include <curl/curl.h>
-#define HALIGN4_HAVE_LIBCURL 1
 #endif
 
 namespace fs = std::filesystem;

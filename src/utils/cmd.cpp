@@ -8,6 +8,7 @@
 #include <sys/wait.h> // WIFEXITED/WEXITSTATUS/WIFSIGNALED/WTERMSIG
 
 #include "config.hpp"
+#include "msa_validation.hpp"
 
 // Do not use namespace detail: helpers visible only within this cpp (internal linkage)
 // replaceAll: replace all occurrences of a substring in a string with another string.
@@ -182,7 +183,15 @@ namespace cmd
                 break;
             }
 
-            spdlog::info("cmd finished successfully, output: {}", out_path.string());
+            // Existence alone is not enough: catch empty/nonrectangular/corrupt FASTA.
+            try {
+                msa::validateFastaAlignment(in_path, out_path);
+            } catch (const std::exception& e) {
+                spdlog::error("MSA command self-test produced invalid alignment: {}", e.what());
+                ok = false;
+                break;
+            }
+            spdlog::info("cmd finished successfully and output validated: {}", out_path.string());
 
         } while (false);
 

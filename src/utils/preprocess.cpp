@@ -4,6 +4,8 @@
 #include <cstdlib>
 #include <sstream>
 #include <filesystem>
+#include <stdexcept>
+#include "msa_validation.hpp"
 
 // This document contains the preprocessing logic for the FASTA input:
 // - The input file (which can be a local path or a URL) is retrieved to the data/raw directory in the working directory;
@@ -174,72 +176,35 @@ uint_t preprocessInputFasta(const std::string input_path, const std::string work
 void alignConsensusSequence(const FilePath& input_file, const FilePath& output_file,
                             const std::string& msa_cmd, int threads)
 {
-
-    // Check that the input file exists
-    if (!std::filesystem::exists(input_file)) {
-        spdlog::warn("Consensus unaligned file not found: {}", input_file.string());
-        return;
+    // Do not permit a failed/stale external command to supply a previous result.
+    file_io::requireRegularFile(input_file, "unaligned consensus FASTA");
+    if (std::filesystem::exists(output_file) &&
+        std::filesystem::equivalent(input_file, output_file)) {
+        throw std::runtime_error("input and output FASTA must be distinct files");
     }
+    file_io::ensureParentDirExists(output_file);
+    std::filesystem::remove(output_file);  // Clear stale output before launching.
 
-    // Record start time
-    const auto t_start = std::chrono::steady_clock::now();
-
-    spdlog::info("Starting consensus alignment");
-    spdlog::info("  input : {}", input_file.string());
-    spdlog::info("  output: {}", output_file.string());
-    spdlog::info("  tool  : {}", msa_cmd);
-    spdlog::info("  thrs  : {}", threads);
-
-    // Try logging the input file size (if accessible)
+    const auto start = std::chrono::steady_clock::now();
+    const auto command = cmd::buildCommand(
+        msa_cmd, input_file.string(), output_file.string(), threads, cmd::BuildOptions{});
+    spdlog::info("Starting MSA command: {}", command);
     try {
-        if (std::filesystem::exists(input_file)) {
-            auto in_size = std::filesystem::file_size(input_file);
-            spdlog::info("Input file size: {} bytes", in_size);
-        }
-    } catch (const std::exception &e) {
-        spdlog::warn("Failed to stat input file {}: {}", input_file.string(), e.what());
-    }
-
-    // Build the command. By default, pass -i / -o / -t parameters so it can be swapped later for a cmd module interface.
-    cmd::BuildOptions build_opt;
-    const std::string cmd_str = cmd::buildCommand(msa_cmd,input_file.string(),output_file.string(),threads, build_opt);
-    spdlog::info("Built MSA command (length {}): {}", cmd_str.size(), cmd_str);
-    spdlog::info("MSA command (escaped): {}", cmd_str);
-
-    // Invoke external command (currently using std::system; swap to internal cmd interface if desired later)
-    try {
-        const auto cmd_start = std::chrono::steady_clock::now();
-        int rc = cmd::runCommand(cmd_str);
-        const auto cmd_end = std::chrono::steady_clock::now();
-        const double cmd_elapsed = std::chrono::duration_cast<std::chrono::duration<double>>(cmd_end - cmd_start).count();
-
+        const int rc = cmd::runCommand(command);
         if (rc != 0) {
-            spdlog::error("MSA command failed (exit code {}): {}", rc, cmd_str);
-        } else {
-            spdlog::info("MSA command exited with code 0 (success). Elapsed: {:.3f} s", cmd_elapsed);
+            throw std::runtime_error("MSA command failed (exit code " +
+                                     std::to_string(rc) + "): " + command);
         }
 
-        // Check output file
-        try {
-            if (std::filesystem::exists(output_file)) {
-                auto out_size = std::filesystem::file_size(output_file);
-                spdlog::info("Aligned consensus output exists: {} ({} bytes)", output_file.string(), out_size);
-                if (out_size == 0) {
-                    spdlog::warn("Aligned consensus output is empty: {}", input_file.string());
-                }
-            } else {
-                spdlog::warn("Aligned consensus output not found after running MSA command: {}", input_file.string());
-            }
-        } catch (const std::exception &e) {
-            spdlog::warn("Failed to stat output file {}: {}", input_file.string(), e.what());
-        }
-
-    } catch (const std::exception &e) {
-        spdlog::error("Exception while running MSA command for {}: {}", input_file.string(), e.what());
+        const auto stats = msa::validateFastaAlignment(input_file, output_file);
+        const auto elapsed = std::chrono::duration<double>(
+            std::chrono::steady_clock::now() - start).count();
+        spdlog::info("MSA verified: {} sequences, {} columns, {} bases; elapsed {:.3f}s",
+                     stats.records, stats.columns, stats.bases, elapsed);
+    } catch (...) {
+        // Remove partial or invalid output. Let main() propagate a nonzero exit status.
+        std::error_code ignored;
+        std::filesystem::remove(output_file, ignored);
+        throw;
     }
-
-    const auto t_end = std::chrono::steady_clock::now();
-    const double elapsed_s = std::chrono::duration_cast<std::chrono::duration<double>>(t_end - t_start).count();
-    spdlog::info("Finished consensus alignment. Total elapsed: {:.3f} s", elapsed_s);
 }
-

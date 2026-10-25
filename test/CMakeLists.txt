@@ -18,12 +18,16 @@ get_filename_component(HALIGN4_ROOT "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
 
 
 find_package(OpenMP REQUIRED)
-find_package(CURL)
+option(HALIGN4_WITH_CURL "Link HAlign4 tests to libcurl" OFF)
+if (HALIGN4_WITH_CURL)
+    find_package(CURL REQUIRED)
+endif()
 find_package(ZLIB)
 
 # --- Reuse your implementation: build a support static library ---
 add_library(halign4_test_support STATIC
         "${HALIGN4_ROOT}/src/utils/preprocess.cpp"
+        "${HALIGN4_ROOT}/src/utils/msa_validation.cpp"
         "${HALIGN4_ROOT}/src/utils/seq_io.cpp"
         "${HALIGN4_ROOT}/src/utils/cmd.cpp"
         "${HALIGN4_ROOT}/src/utils/file_io.cpp"
@@ -73,7 +77,7 @@ else()
     )
 endif()
 
-if (CURL_FOUND)
+if (HALIGN4_WITH_CURL AND CURL_FOUND)
     target_link_libraries(halign4_test_support PUBLIC CURL::libcurl)
     target_compile_definitions(halign4_test_support PUBLIC HALIGN4_HAVE_LIBCURL=1)
 endif()
@@ -120,6 +124,7 @@ add_executable(halign4_tests
         "${CMAKE_CURRENT_LIST_DIR}/doctest_main.cpp"
         "${CMAKE_CURRENT_LIST_DIR}/test_consensus.cpp"
         "${CMAKE_CURRENT_LIST_DIR}/test_read_fasta.cpp"
+        "${CMAKE_CURRENT_LIST_DIR}/test_msa_validation.cpp"
         "${CMAKE_CURRENT_LIST_DIR}/test_minimizer.cpp"
         "${CMAKE_CURRENT_LIST_DIR}/test_mash.cpp"
         "${CMAKE_CURRENT_LIST_DIR}/test_jaccard.cpp"
@@ -164,6 +169,9 @@ add_test(NAME consensus
 add_test(NAME read_fasta
         COMMAND halign4_tests --test-suite=read_fasta)
 
+add_test(NAME msa_validation
+        COMMAND halign4_tests --test-suite=msa_validation)
+
 
 add_test(NAME minimizer
         COMMAND halign4_tests --test-suite=minimizer)
@@ -181,9 +189,14 @@ add_test(NAME write_fasta
 add_test(NAME align
         COMMAND halign4_tests --test-suite=align)
 
-# Align performance test (time-consuming, includes high similarity sequence testing)
-add_test(NAME align_perf
-        COMMAND halign4_tests --test-suite=align_perf)
+# Slow benchmark suite is opt-in; on constrained machines this can take many
+# minutes, and must not block the default correctness suite.
+option(HALIGN4_ENABLE_SLOW_TESTS "Register long-running alignment performance tests" OFF)
+if(HALIGN4_ENABLE_SLOW_TESTS)
+    add_test(NAME align_perf
+            COMMAND halign4_tests --test-suite=align_perf)
+    set_tests_properties(align_perf PROPERTIES LABELS "performance;slow")
+endif()
 
 # Anchor correctness test (quick)
 add_test(NAME anchor

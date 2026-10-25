@@ -13,9 +13,9 @@
 #endif
 
 // zlib support: optional gzip-compressed file reading
-#if __has_include(<zlib.h>)
+// Only enable gzip I/O when zlib was found AND linked by CMake.
+#if defined(HALIGN4_HAVE_ZLIB) && HALIGN4_HAVE_ZLIB
     #include <zlib.h>
-    #define HALIGN4_HAVE_ZLIB 1
 #else
     #define HALIGN4_HAVE_ZLIB 0
 #endif

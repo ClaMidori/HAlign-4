@@ -24,6 +24,7 @@ include_directories(
 add_executable(halign4
         src/halign4.cpp
         src/utils/preprocess.cpp
+        src/utils/msa_validation.cpp
         src/utils/seq_io.cpp
         src/utils/cmd.cpp
         src/utils/file_io.cpp
@@ -41,8 +42,13 @@ add_executable(halign4
 
 )
 
-find_package(CURL)
-if (CURL_FOUND)
+# Static libcurl distributions can have missing transitive dependencies.
+# Optional network download support stays available through curl/wget executables.
+option(HALIGN4_WITH_CURL "Link HAlign4 to libcurl (OFF uses curl/wget fallback)" OFF)
+if (HALIGN4_WITH_CURL)
+    find_package(CURL REQUIRED)
+endif()
+if (HALIGN4_WITH_CURL AND CURL_FOUND)
     target_link_libraries(halign4 PRIVATE CURL::libcurl)
     target_compile_definitions(halign4 PRIVATE HALIGN4_HAVE_LIBCURL=1)
 else()
