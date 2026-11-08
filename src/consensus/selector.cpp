@@ -212,3 +212,23 @@ TopKLongestSelector::TopKLongestSelector(std::size_t k)
         }
         return out;
     }
+
+
+// Direct MSA must not silently change the order of graph insertion.
+std::vector<seq_io::SeqRecord> TopKLongestSelector::takeInInputOrder()
+{
+    std::vector<Item> items = std::move(heap_);
+    heap_.clear();
+    heap_.shrink_to_fit();
+    heap_.reserve(k_);
+
+    std::sort(items.begin(), items.end(),
+              [](const Item& a, const Item& b) { return a.order < b.order; });
+
+    std::vector<seq_io::SeqRecord> out;
+    out.reserve(items.size());
+    for (auto& it : items) {
+        out.push_back(std::move(it.rec));
+    }
+    return out;
+}

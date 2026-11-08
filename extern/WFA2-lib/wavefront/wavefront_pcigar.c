@@ -32,6 +32,7 @@
 #include "utils/commons.h"
 #include "system/mm_allocator.h"
 #include "wavefront_pcigar.h"
+#include <string.h>
 
 /*
  * Packed CIGAR operations
@@ -50,7 +51,6 @@ pcigar_op_t pcigar_lut[4] = {
 };
 // Precomputed string of Matches
 char matches_lut[8] = "MMMMMMMM";
-#define CIGAR_8MATCHES_UINT64 *((uint64_t*)matches_lut)
 
 /*
  * Accessors
@@ -99,10 +99,11 @@ int pcigar_unpack_extend(
     char* cigar_buffer) {
   int num_matches = 0;
   // Fetch pattern/text blocks
-  uint64_t* pattern_blocks = (uint64_t*)(pattern+v);
-  uint64_t* text_blocks = (uint64_t*)(text+h);
-  uint64_t pattern_block = *pattern_blocks;
-  uint64_t text_block = *text_blocks;
+  const char* pattern_ptr = pattern + v;
+  const char* text_ptr = text + h;
+  uint64_t pattern_block, text_block;
+  memcpy(&pattern_block, pattern_ptr, sizeof(pattern_block));
+  memcpy(&text_block, text_ptr, sizeof(text_block));
   // Compare 64-bits blocks
   uint64_t cmp = pattern_block ^ text_block;
   while (cmp==0 && (v+8) < pattern_length && (h+8) < text_length) {
@@ -111,19 +112,19 @@ int pcigar_unpack_extend(
     h += 8;
     num_matches += 8;
     // Dump matches in block
-    *((uint64_t*)cigar_buffer) = CIGAR_8MATCHES_UINT64;
+    memcpy(cigar_buffer, matches_lut, sizeof(matches_lut));
     cigar_buffer += 8;
     // Next blocks
-    ++pattern_blocks;
-    ++text_blocks;
+    pattern_ptr += 8;
+    text_ptr += 8;
     // Fetch & Compare
-    pattern_block = *pattern_blocks;
-    text_block = *text_blocks;
+    memcpy(&pattern_block, pattern_ptr, sizeof(pattern_block));
+    memcpy(&text_block, text_ptr, sizeof(text_block));
     cmp = pattern_block ^ text_block;
   }
   // Count equal characters
   num_matches += __builtin_ctzl(cmp)/8;
-  *((uint64_t*)cigar_buffer) = CIGAR_8MATCHES_UINT64;
+  memcpy(cigar_buffer, matches_lut, sizeof(matches_lut));
   // Return total matches
   return num_matches;
 }

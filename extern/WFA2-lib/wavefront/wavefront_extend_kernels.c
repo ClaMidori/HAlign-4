@@ -32,6 +32,7 @@
 
 // Use cross-platform header
 #include <sys/types.h>
+#include <string.h>  // memcpy avoids misaligned uint64_t dereferences
 
 #include "wavefront_extend_kernels.h"
 #include "wavefront_termination.h"
@@ -70,18 +71,23 @@ FORCE_INLINE wf_offset_t wavefront_extend_matches_kernel_blockwise(
     const int k,
     wf_offset_t offset) {
   // Fetch pattern/text blocks
-  uint64_t* pattern_blocks = (uint64_t*)(wf_aligner->sequences.pattern+WAVEFRONT_V(k,offset));
-  uint64_t* text_blocks = (uint64_t*)(wf_aligner->sequences.text+WAVEFRONT_H(k,offset));
-  // Compare 64-bits blocks
-  uint64_t cmp = *pattern_blocks ^ *text_blocks;
+  // WFA2's padded sequence buffers support 8-byte comparisons, but the
+  // current cursor is not guaranteed to be 8-byte aligned. Casting to
+  // uint64_t* and dereferencing violates C alignment/aliasing rules.
+  const char* pattern_ptr = wf_aligner->sequences.pattern + WAVEFRONT_V(k,offset);
+  const char* text_ptr = wf_aligner->sequences.text + WAVEFRONT_H(k,offset);
+  uint64_t pattern_word, text_word;
+  memcpy(&pattern_word, pattern_ptr, sizeof(pattern_word));
+  memcpy(&text_word, text_ptr, sizeof(text_word));
+  uint64_t cmp = pattern_word ^ text_word;
   while (__builtin_expect(cmp==0,0)) {
     // Increment offset (full block)
     offset += 8;
-    // Next blocks
-    ++pattern_blocks;
-    ++text_blocks;
-    // Compare
-    cmp = *pattern_blocks ^ *text_blocks;
+    pattern_ptr += 8;
+    text_ptr += 8;
+    memcpy(&pattern_word, pattern_ptr, sizeof(pattern_word));
+    memcpy(&text_word, text_ptr, sizeof(text_word));
+    cmp = pattern_word ^ text_word;
   }
   // Count equal characters
   const int equal_right_bits = __builtin_ctzl(cmp);

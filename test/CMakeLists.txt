@@ -42,6 +42,11 @@ add_library(halign4_test_support STATIC
         "${HALIGN4_ROOT}/src/align/ksw2_extz2_sse.c"
         "${HALIGN4_ROOT}/src/align/cigar.cpp"
         "${HALIGN4_ROOT}/src/align/align.cpp"
+        "${HALIGN4_ROOT}/src/align/native_msa.cpp"
+        "${HALIGN4_ROOT}/src/align/strategy.cpp"
+        "${HALIGN4_ROOT}/src/align/profile_projection.cpp"
+        "${HALIGN4_ROOT}/src/align/ordered_sam.cpp"
+        "${HALIGN4_ROOT}/src/align/anchored_insertions.cpp"
 )
 
 target_include_directories(halign4_test_support PUBLIC
@@ -51,6 +56,7 @@ target_include_directories(halign4_test_support PUBLIC
         "${HALIGN4_ROOT}/extern/cereal/include"
         "${HALIGN4_ROOT}/extern/doctest/include"
         "${HALIGN4_ROOT}/extern/WFA2-lib"
+        "${HALIGN4_ROOT}/extern/abPOA/include"
 )
 
 # Note: Explicitly link WFA2 static library here to avoid exposing only include directories without the corresponding library,
@@ -117,7 +123,13 @@ add_subdirectory(${HALIGN4_ROOT}/extern/WFA2-lib ${CMAKE_CURRENT_BINARY_DIR}/wfa
 # Note: We cannot directly link to the main project target `halign4` (not defined in this CMakeLists),
 # otherwise configuration will fail. We link OpenMP + WFA2 static libraries into the test support library,
 # so halign4_tests obtains these dependencies indirectly through halign4_test_support, keeping test logic unchanged.
+# The test project is configured independently from the top-level CMake.
+if(NOT EXISTS "${HALIGN4_ROOT}/extern/abPOA/include/abpoa.h")
+    message(FATAL_ERROR "abPOA submodule missing: run git submodule update --init --recursive")
+endif()
+add_subdirectory("${HALIGN4_ROOT}/extern/abPOA" "${CMAKE_CURRENT_BINARY_DIR}/abpoa-build" EXCLUDE_FROM_ALL)
 target_link_libraries(halign4_test_support PRIVATE OpenMP::OpenMP_CXX wfa2::wfa2cpp_static)
+target_link_libraries(halign4_test_support PUBLIC abpoa)
 
 
 add_executable(halign4_tests
@@ -131,6 +143,11 @@ add_executable(halign4_tests
         "${CMAKE_CURRENT_LIST_DIR}/test_fasta_writer.cpp"
         "${CMAKE_CURRENT_LIST_DIR}/test_align.cpp"
         "${CMAKE_CURRENT_LIST_DIR}/test_anchor.cpp"
+        "${CMAKE_CURRENT_LIST_DIR}/test_native_msa.cpp"
+        "${CMAKE_CURRENT_LIST_DIR}/test_strategy.cpp"
+        "${CMAKE_CURRENT_LIST_DIR}/test_profile_projection.cpp"
+        "${CMAKE_CURRENT_LIST_DIR}/test_ordered_sam.cpp"
+        "${CMAKE_CURRENT_LIST_DIR}/test_anchored_insertions.cpp"
 )
 
 target_link_libraries(halign4_tests PRIVATE halign4_test_support)
@@ -205,3 +222,17 @@ add_test(NAME anchor
 
 
 
+
+add_test(NAME native_msa COMMAND halign4_tests --test-suite=native_msa)
+
+add_test(NAME strategy COMMAND halign4_tests --test-suite=strategy)
+
+add_test(NAME profile_projection COMMAND halign4_tests --test-suite=profile_projection)
+
+add_test(NAME ordered_sam COMMAND halign4_tests --test-suite=ordered_sam)
+
+add_test(NAME anchored_insertions COMMAND halign4_tests --test-suite=anchored_insertions)
+
+add_test(NAME soft_anchors COMMAND halign4_tests --test-suite=soft_anchors)
+
+add_test(NAME soft_anchor_recruit COMMAND halign4_tests --test-suite=soft_anchor_recruit)

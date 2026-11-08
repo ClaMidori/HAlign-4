@@ -4,6 +4,8 @@
 #include "consensus.h"
 
 #include "align.h"
+#include "align/strategy.hpp"
+#include "align/native_msa.hpp"
 
 // Program entry: command line parsing -> preprocessing -> consensus alignment -> sequence alignment -> result merging -> cleanup working directory
 
@@ -35,10 +37,14 @@ static void checkOption(Options& opt) {
 
     // MSA Command Template Parsing and Self-Test
     const std::string msa_cmd_str = resolveMsaCmdTemplate(opt.msa_cmd);
-    if (cmd::testCommandTemplate(msa_cmd_str, opt.workdir, opt.threads)) {
-        spdlog::info("msa_cmd template test passed.");
+    if (msa_cmd_str != "native") {
+        if (cmd::testCommandTemplate(msa_cmd_str, opt.workdir, opt.threads)) {
+            spdlog::info("msa_cmd template test passed.");
+        } else {
+            throw std::runtime_error("msa_cmd template test failed.");
+        }
     } else {
-        throw std::runtime_error("msa_cmd template test failed.");
+        spdlog::info("Using in-process NativeMSA; no external command self-test needed.");
     }
     opt.msa_cmd = msa_cmd_str;
 }
@@ -80,13 +86,98 @@ int main(int argc, char** argv) {
         logParsedOptions(opt);
         spdlog::info("Starting halign4 version {}...", VERSION);
 
+        // PR3A: make the routing decision *before* preprocessing (which keeps
+        // the Top-K full sequences in RAM). Explicit -p remains available in
+        // the legacy mode; auto/direct cannot silently override it.
+        if (opt.mode != "legacy") {
+            if (!opt.msa_cmd.empty() && resolveMsaCmdTemplate(opt.msa_cmd) != "native") {
+                throw std::invalid_argument("--mode auto/direct conflicts with -p/--msa-cmd; "
+                                            "omit -p or use -p native");
+            }
+            const auto stats = align_strategy::scanFasta(opt.input);
+            const native_msa::Options native_limits;
+            const align_strategy::Budget budget{
+                native_limits.max_sequences,
+                native_limits.max_sequence_bases,
+                native_limits.max_total_bases
+            };
+            const auto choice = align_strategy::chooseNativeDirect(
+                stats, budget, static_cast<std::uint64_t>(opt.cons_n),
+                opt.keep_length, !opt.center_path.empty());
+            spdlog::info("Alignment input: {} sequences, {} bases, min={} max={}",
+                         stats.sequence_count, stats.total_bases,
+                         stats.shortest_bases, stats.longest_bases);
+            if (!choice.native_direct) {
+                throw std::runtime_error("--mode " + opt.mode + ": " + choice.explanation +
+                    ". PR3A intentionally does not auto-route large input to the "
+                    "legacy Python chunker. Use --mode legacy explicitly, or wait "
+                    "for native hierarchical/ultralong routing.");
+            }
+            spdlog::info("Selected bounded NativeMSA: {}", choice.explanation);
+            opt.msa_cmd = "native";
+        }
+
+        if (opt.soft_anchors && !opt.anchored_insertions) {
+            throw std::invalid_argument("--soft-anchors requires --anchored-insertions");
+        }
+        if (opt.soft_anchor_recruit && !opt.soft_anchors) {
+            throw std::invalid_argument("--soft-anchor-recruit requires --soft-anchors");
+        }
+
+        // PR3B.5A is intentionally opt-in and bounded; the default legacy
+        // pipeline and PR3A direct/auto routing remain unchanged.
+        if (opt.anchored_insertions &&
+            (opt.mode != "legacy" || opt.keep_length ||
+             resolveMsaCmdTemplate(opt.msa_cmd) == "native")) {
+            throw std::invalid_argument("--anchored-insertions requires --mode legacy, "
+                                        "--keep-length off, and an external center MSA command");
+        }
+
+        if (opt.anchored_insertions) {
+            // Reject oversized inputs BEFORE preprocessing or alignment buffers
+            // materialize a full batch. This is experimental short-DNA only.
+            const auto stats = align_strategy::scanFasta(opt.input);
+            if (stats.sequence_count < 2 || stats.sequence_count > 64 ||
+                stats.longest_bases > 25000 || stats.total_bases > 100000 ||
+                stats.contains_gaps) {
+                throw std::invalid_argument(
+                    "--anchored-insertions supports 2..64 ungapped DNA queries, "
+                    "at most 25kb/sequence and 100kb input total");
+            }
+            if (!opt.center_path.empty()) {
+                const auto center = align_strategy::scanFasta(opt.center_path);
+                if (center.sequence_count != 1 || center.longest_bases > 25000 ||
+                    center.contains_gaps) {
+                    throw std::invalid_argument(
+                        "--anchored-insertions requires exactly one ungapped center <=25kb");
+                }
+            }
+        }
+
         // Check parameters
         checkOption(opt);
         setupLoggerWithFile(opt.workdir);
 
         // preprocessing
-        const uint_t preproc_count = preprocessInputFasta(opt.input, opt.workdir, opt.cons_n);
+        const uint_t preproc_count = preprocessInputFasta(
+            opt.input, opt.workdir, opt.cons_n, opt.msa_cmd == "native");
         spdlog::info("Preprocessing produced {} records", preproc_count);
+
+        if (opt.anchored_insertions && preproc_count <= static_cast<uint_t>(opt.cons_n)) {
+            throw std::invalid_argument("--anchored-insertions requires hierarchical input count > --cons-n");
+        }
+
+        // PR 2B: deliberately expose only safe, small direct MSA. Do not
+        // silently enter the hierarchical path with size-limited NativeMSA.
+        // PR 3 will add budget-based automatic backend selection.
+        if (opt.msa_cmd == "native" &&
+            (preproc_count > static_cast<uint_t>(opt.cons_n) || preproc_count > 64 ||
+             opt.keep_length || !opt.center_path.empty())) {
+            throw std::runtime_error(
+                "-p native currently supports only direct MSA of <=64 sequences "
+                "with --keep-length disabled and without --center-path; "
+                "use the legacy backend for hierarchical/large inputs");
+        }
 
         // File path definitions
         const FilePath consensus_unaligned_file = FilePath(opt.workdir) / WORKDIR_DATA / DATA_CLEAN / CLEAN_CONS_UNALIGNED;

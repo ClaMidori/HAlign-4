@@ -37,6 +37,11 @@ add_executable(halign4
         src/align/ksw2_extz2_sse.c
         src/align/cigar.cpp
         src/align/align.cpp
+        src/align/native_msa.cpp
+        src/align/strategy.cpp
+        src/align/profile_projection.cpp
+        src/align/ordered_sam.cpp
+        src/align/anchored_insertions.cpp
         src/seed/minimizer.cpp
         src/seed/anchor.cpp
 
@@ -83,7 +88,14 @@ set(WFA2LIB_BUILD_TESTS OFF CACHE BOOL "Do not register WFA2-lib tests" FORCE)
 
 add_subdirectory(extern/WFA2-lib)
 
-target_link_libraries(halign4 PRIVATE OpenMP::OpenMP_CXX wfa2::wfa2cpp_static)
+# Integrate the version-pinned abPOA submodule directly. Do not build its CLI
+# during a normal HAlign-4 build. This is a library-only integration at PR 2.
+if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/extern/abPOA/include/abpoa.h")
+    message(FATAL_ERROR "abPOA submodule missing: run git submodule update --init --recursive")
+endif()
+add_subdirectory(extern/abPOA ${CMAKE_CURRENT_BINARY_DIR}/abpoa-build EXCLUDE_FROM_ALL)
+target_include_directories(halign4 PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/extern/abPOA/include")
+target_link_libraries(halign4 PRIVATE OpenMP::OpenMP_CXX wfa2::wfa2cpp_static abpoa)
 
 # Add aggressive optimization flags in Release builds (handled separately for GCC/Clang vs MSVC)
 if (MSVC)

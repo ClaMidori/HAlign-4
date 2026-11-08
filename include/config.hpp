@@ -78,6 +78,7 @@ inline std::string resolveMsaCmdTemplate(const std::string& user_value) {
     }
 
     // Updated to catch 'abpoa' (or legacy 'minipoa' to not break existing user scripts)
+    if (v == "native") return "native";  // In-process libabpoa, no shell command.
     if (v == "abpoa" || v == "minipoa") return ABPOA_CMD;
     if (v == "mafft") return MAFFT_MSA_CMD;
     if (v == "clustalo") return CLUSTALO_MSA_CMD;
@@ -190,6 +191,7 @@ struct Options {
 	// Optional parameters: center sequence, MSA command template
 	std::string center_path;    // -c: optional, specify center sequence file path, if specified, bypass automatic selection
 	std::string msa_cmd;        // -p: command template for MSA on consensus sequence (can contain {input} {output} {thread} placeholders)
+	std::string mode = "legacy"; // --mode: legacy (unchanged default), direct, or provisional auto
 
 	// Parallel and algorithm parameters
 	int threads = get_default_threads(); // -t: number of threads, default is CPU core count
@@ -200,6 +202,9 @@ struct Options {
 
 	// keep length related switch:
 	// - keep_length: keep the length of the "first/center sequence" unchanged (other sequences can change/fill according to alignment results), suitable for scenarios where only the output consensus/center sequence length is concerned.
+	bool anchored_insertions = false; // --anchored-insertions: experimental bounded site-local MSA
+	bool soft_anchors = false; // --soft-anchors: experimental low-support center block rescue
+	bool soft_anchor_recruit = false; // --soft-anchor-recruit: optional V3 fallback for divergent families
 	bool keep_length = false; // --keep-length
 	// workdir cleanup switch:
 	// - save_workdir: if true, keep the working directory after alignment/output completion; if false (default), delete the working directory after successful completion.
@@ -277,7 +282,21 @@ static void setupCli(CLI::App& app, Options& opt) {
     // - Default uses minipoa (equivalent to -p minipoa if not passed);
     // - This command will do a tiny.fasta smoke test during parameter validation; if the environment lacks this tool, it will directly error.
     app.add_option("-p,--msa-cmd", opt.msa_cmd,
-                   "High-quality MSA method: keyword {abpoa|mafft|clustalo} or a custom command template containing {input} and {output} (optional {thread}).");
+                   "High-quality MSA method: keyword {native|abpoa|mafft|clustalo} or a custom command template containing {input} and {output} (optional {thread}).");
+
+    // PR3A: only the bounded direct path is automatic so far. Long and
+    // hierarchical requests are rejected in auto mode, never silently sent
+    // to the old fixed-coordinate Python chunker.
+    app.add_option("--mode", opt.mode,
+                   "Execution mode: legacy (default), direct, or auto (bounded direct only for now).")
+        ->check(CLI::IsMember({"legacy", "direct", "auto"}));
+
+    app.add_flag("--anchored-insertions", opt.anchored_insertions,
+                 "Experimental bounded hierarchical assembly: keep consensus anchors and locally align insertions with in-process abPOA. Requires --mode legacy.");
+    app.add_flag("--soft-anchors", opt.soft_anchors,
+                 "Experimental opt-in: split unsupported center blocks into distinct haplotype lanes. Requires --anchored-insertions.");
+    app.add_flag("--soft-anchor-recruit", opt.soft_anchor_recruit,
+                 "Experimental V3 fallback for divergent haplotype families. Requires --soft-anchors and --anchored-insertions.");
 
     // -t/--thread: number of threads.
     // Note:
@@ -350,6 +369,7 @@ static void logParsedOptions(const Options& opt) {
         {"workdir", toString(opt.workdir, valW)},
         {"center-path", toString(opt.center_path, valW)},
         {"msa_cmd", toString(opt.msa_cmd, valW)},
+        {"mode", toString(opt.mode, valW)},
         {"threads", std::to_string(opt.threads)},
         {"kmer-size", std::to_string(opt.kmer_size)},
         {"kmer-window", std::to_string(opt.kmer_window)},

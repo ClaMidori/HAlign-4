@@ -31,6 +31,7 @@
 
 #include "utils/commons.h"
 #include "wavefront_backtrace.h"
+#include <string.h>
 
 /*
  * Wavefront type
@@ -38,8 +39,13 @@
 #define BACKTRACE_TYPE_BITS                   4 // 4-bits for piggyback
 #define BACKTRACE_TYPE_MASK 0x000000000000000Fl // Extract mask
 
+// Signed offsets may contain WAVEFRONT_OFFSET_NULL (negative).
+// Left-shifting a negative signed integer is undefined behavior in C.
+// Multiplication in int64_t is safe for all wf_offset_t (int32_t) values.
+// Adding the 4-bit type preserves the original packed bit layout.
 #define BACKTRACE_PIGGYBACK_SET(offset,backtrace_type) \
-  (( ((int64_t)(offset)) << BACKTRACE_TYPE_BITS) | backtrace_type)
+  ((((int64_t)(offset)) * (INT64_C(1) << BACKTRACE_TYPE_BITS)) + \
+   ((int64_t)(backtrace_type)))
 
 #define BACKTRACE_PIGGYBACK_GET_TYPE(offset) \
   ((offset) & BACKTRACE_TYPE_MASK)
@@ -89,7 +95,7 @@ void wavefront_backtrace_matches(
   // Blocks of 8-matches
   while (num_matches >= 8) {
     operations -= 8;
-    *((uint64_t*)(operations+1)) = matches_lut;
+    memcpy(operations+1, &matches_lut, sizeof(matches_lut));
     num_matches -= 8;
   }
   // Remaining matches

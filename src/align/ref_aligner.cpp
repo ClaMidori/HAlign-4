@@ -3,10 +3,15 @@
 #include "preprocess.h"
 #include "consensus.h"
 #include "seed.h"
+#include "align/strategy.hpp"
+#include "align/native_msa.hpp"
+#include "align/profile_projection.hpp"
+#include "align/anchored_insertions.hpp"
 #include <algorithm>
 #include <cstddef>
 #include <filesystem>
 #include <memory>
+#include <limits>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -21,7 +26,8 @@ namespace align {
                            int kmer_size, int window_size,
                            int sketch_size, bool noncanonical,
                            int threads, std::string msa_cmd,
-                           bool keep_length)
+                           bool keep_length, bool anchored_insertions, bool soft_anchors,
+                           bool soft_anchor_recruit)
         : work_dir(work_dir),
           kmer_size(kmer_size),
           window_size(window_size),
@@ -29,7 +35,10 @@ namespace align {
           noncanonical(noncanonical),
           threads(threads),
           msa_cmd(std::move(msa_cmd)),
-          keep_length(keep_length)
+          keep_length(keep_length),
+          anchored_insertions(anchored_insertions),
+          soft_anchors(soft_anchors),
+          soft_anchor_recruit(soft_anchor_recruit)
     {
         // Load reference sequences and build sketch/minimizer indices
         seq_io::KseqReader reader(ref_fasta_path);
@@ -83,7 +92,10 @@ namespace align {
             true,
             opt.threads,
             opt.msa_cmd,
-            opt.keep_length)
+            opt.keep_length,
+            opt.anchored_insertions,
+            opt.soft_anchors,
+            opt.soft_anchor_recruit)
     {
     }
 
@@ -128,10 +140,12 @@ namespace align {
     void RefAligner::writeSamRecord(const seq_io::SeqRecord& q,
                                     const cigar::Cigar_t& cigar,
                                     std::string_view ref_name,
-                                    seq_io::SeqWriter& out) const
+                                    seq_io::SeqWriter& out,
+                                    std::uint64_t ordinal) const
     {
         const std::string cigar_str = cigar::cigarToString(cigar);
-        const auto sam_rec = seq_io::makeSamRecord(q, ref_name, cigar_str, 1, 60, 0);
+        auto sam_rec = seq_io::makeSamRecord(q, ref_name, cigar_str, 1, 60, 0);
+        ordered_sam::addOrdinal(sam_rec, ordinal);
         out.writeSam(sam_rec);
     }
 
@@ -149,59 +163,45 @@ namespace align {
 
         std::size_t total_count = 1;
 
-        for (const auto& sam_path : sam_paths) {
-            if (!std::filesystem::exists(sam_path)) {
-                const std::string err_msg = "SAM file does not exist: " + sam_path.string();
-                spdlog::error(err_msg);
-                throw std::runtime_error(err_msg);
-            }
+        // Merge by original query ordinal, independent of thread distribution.
+        ordered_sam::Reader reader(sam_paths);
+        seq_io::SamRecord sam_rec;
+        seq_io::SeqRecord fasta_rec;
+        while (reader.next(sam_rec)) {
+            fasta_rec = seq_io::samRecordToSeqRecord(sam_rec, false);
 
-            const auto file_size = std::filesystem::file_size(sam_path);
-            if (file_size == 0) {
-                spdlog::warn("Skip empty SAM file: {}", sam_path.string());
-                continue;
-            }
-
-            seq_io::SamReader reader(sam_path);
-            seq_io::SamRecord sam_rec;
-            seq_io::SeqRecord fasta_rec;
-
-            while (reader.next(sam_rec)) {
-                fasta_rec = seq_io::samRecordToSeqRecord(sam_rec, false);
-
-                if (keep && !sam_rec.cigar.empty()) {
+            if (keep && !sam_rec.cigar.empty()) {
 #ifdef _DEBUG
-                    const cigar::Cigar_t debug_cigar_ops = cigar::stringToCigar(sam_rec.cigar);
-                    const std::size_t debug_ref_len = cigar::getRefLength(debug_cigar_ops);
-                    const std::size_t debug_qry_len = cigar::getQueryLength(debug_cigar_ops);
-                    if (debug_ref_len != consensus_seq.seq.size() ||
-                        debug_qry_len != fasta_rec.seq.size()) {
-                        spdlog::debug("mergeConsensusAndSamToFasta: CIGAR length mismatch {}",
-                                     fasta_rec.id);
-                    }
+                const cigar::Cigar_t debug_cigar_ops = cigar::stringToCigar(sam_rec.cigar);
+                const std::size_t debug_ref_len = cigar::getRefLength(debug_cigar_ops);
+                const std::size_t debug_qry_len = cigar::getQueryLength(debug_cigar_ops);
+                if (debug_ref_len != consensus_seq.seq.size() ||
+                    debug_qry_len != fasta_rec.seq.size()) {
+                    spdlog::debug("mergeConsensusAndSamToFasta: CIGAR length mismatch {}",
+                                 fasta_rec.id);
+                }
 #endif
-                    cigar::Cigar_t cigar_ops = cigar::stringToCigar(sam_rec.cigar);
-                    cigar::delQueryToRefByCigar(fasta_rec.seq, cigar_ops);
+                cigar::Cigar_t cigar_ops = cigar::stringToCigar(sam_rec.cigar);
+                cigar::delQueryToRefByCigar(fasta_rec.seq, cigar_ops);
 
-                    if (sam_rec.rname != "consensus") {
-                        auto it = ref_aligned_map.find(sam_rec.rname);
-                        if (it == ref_aligned_map.end()) {
-                            throw std::runtime_error("Reference '" + sam_rec.rname + "' not found");
-                        }
-                        cigar::padQueryToRefByCigar(fasta_rec.seq, it->second);
+                if (sam_rec.rname != "consensus") {
+                    auto it = ref_aligned_map.find(sam_rec.rname);
+                    if (it == ref_aligned_map.end()) {
+                        throw std::runtime_error("Reference '" + sam_rec.rname + "' not found");
                     }
-
-#ifdef _DEBUG
-                    if (fasta_rec.seq.size() != consensus_seq.seq.size()) {
-                        spdlog::debug("mergeConsensusAndSamToFasta: projected length mismatch {}",
-                                     fasta_rec.id);
-                    }
-#endif
+                    cigar::padQueryToRefByCigar(fasta_rec.seq, it->second);
                 }
 
-                writer.writeFasta(fasta_rec);
-                ++total_count;
+#ifdef _DEBUG
+                if (fasta_rec.seq.size() != consensus_seq.seq.size()) {
+                    spdlog::debug("mergeConsensusAndSamToFasta: projected length mismatch {}",
+                                 fasta_rec.id);
+                }
+#endif
             }
+
+            writer.writeFasta(fasta_rec);
+            ++total_count;
         }
 
         writer.flush();
@@ -210,6 +210,7 @@ namespace align {
 
     // Single query alignment
     void RefAligner::alignOneQueryToRef(const seq_io::SeqRecord& q,
+                                       std::uint64_t ordinal,
                                        seq_io::SeqWriter& out,
                                        seq_io::SeqWriter& out_insertion) const
     {
@@ -252,9 +253,9 @@ namespace align {
         // Single reference sequence: use initial alignment result directly
         if (ref_sequences.size() == 1) {
             if (cigar::hasInsertion(initial_cigar)) {
-                writeSamRecord(q, initial_cigar, consensus_seq.id, out_insertion);
+                writeSamRecord(q, initial_cigar, consensus_seq.id, out_insertion, ordinal);
             } else {
-                writeSamRecord(q, initial_cigar, consensus_seq.id, out);
+                writeSamRecord(q, initial_cigar, consensus_seq.id, out, ordinal);
             }
             return;
         }
@@ -262,9 +263,9 @@ namespace align {
         // Multiple reference sequences + keep_length: retain alignment result with best reference
         if (keep_length) {
             if (cigar::hasInsertion(initial_cigar)) {
-                writeSamRecord(q, initial_cigar, best_ref.id, out_insertion);
+                writeSamRecord(q, initial_cigar, best_ref.id, out_insertion, ordinal);
             } else {
-                writeSamRecord(q, initial_cigar, best_ref.id, out);
+                writeSamRecord(q, initial_cigar, best_ref.id, out, ordinal);
             }
             return;
         }
@@ -276,9 +277,9 @@ namespace align {
             &consensus_minimizer, &query_minimizer);
 
         if (cigar::hasInsertion(recheck_cigar)) {
-            writeSamRecord(q, recheck_cigar, consensus_seq.id, out_insertion);
+            writeSamRecord(q, recheck_cigar, consensus_seq.id, out_insertion, ordinal);
         } else {
-            writeSamRecord(q, recheck_cigar, consensus_seq.id, out);
+            writeSamRecord(q, recheck_cigar, consensus_seq.id, out, ordinal);
         }
     }
 
@@ -295,6 +296,9 @@ namespace align {
             batch_size = default_batch_size;
         }
 
+        // Fix the OpenMP team size for reproducible per-thread SAM output.
+        // Dynamic teams can change the assignment between otherwise identical runs.
+        omp_set_dynamic(0);
         // Set number of threads
         if (threads > 0) {
             omp_set_num_threads(threads);
@@ -342,6 +346,7 @@ namespace align {
         seq_io::KseqReader reader(qry_fasta_path);
         std::vector<seq_io::SeqRecord> chunk;
         chunk.reserve(batch_size);
+        std::uint64_t next_ordinal = 0;
 
         ProgressBar progress("align");
 
@@ -359,19 +364,28 @@ namespace align {
             if (chunk.empty()) break;
 
             // Parallel process current batch
-            #pragma omp parallel default(none) shared(outs, outs_with_insertion, chunk)
+            #pragma omp parallel default(none) shared(outs, outs_with_insertion, chunk, next_ordinal)
             {
                 const int tid = omp_get_thread_num();
                 auto& out = *outs[static_cast<std::size_t>(tid)];
                 auto& out_insertion = *outs_with_insertion[static_cast<std::size_t>(tid)];
 
-                #pragma omp for schedule(dynamic, 1)
+                // Fixed cyclic assignment ensures each per-thread SAM stream
+                // is monotonically ordered by query ordinal. The global
+                // merge below now restores input order independently of -t.
+                #pragma omp for schedule(static, 1)
                 for (std::int64_t i = 0; i < static_cast<std::int64_t>(chunk.size()); ++i) {
-                    alignOneQueryToRef(chunk[static_cast<std::size_t>(i)], out, out_insertion);
+                    alignOneQueryToRef(chunk[static_cast<std::size_t>(i)],
+                                       next_ordinal + static_cast<std::uint64_t>(i),
+                                       out, out_insertion);
                 }
             }
 
             const std::size_t chunk_size = chunk.size();
+            if (chunk_size > std::numeric_limits<std::uint64_t>::max() - next_ordinal) {
+                throw std::overflow_error("Input ordinal exceeds uint64_t");
+            }
+            next_ordinal += static_cast<std::uint64_t>(chunk_size);
 
             // Flush all writers
             for (auto& w : outs) {
@@ -521,6 +535,28 @@ namespace align {
 
         spdlog::info("Merged insertion sequences: {} records (including consensus)", total_sequences);
 
+        // A second-stage MSA must not bypass the native direct size budget.
+        // The scanner is bounded-memory; it runs BEFORE the kseq/native MSA
+        // path, which would otherwise materialize a long sequence in RAM.
+        if (!keep_length && msa_cmd == "native") {
+            const auto stats = align_strategy::scanFasta(insertion_fasta_path);
+            const native_msa::Options options;
+            const align_strategy::Budget budget{
+                options.max_sequences, options.max_sequence_bases, options.max_total_bases};
+            const auto choice = align_strategy::chooseNativeDirect(
+                stats, budget, std::numeric_limits<std::uint64_t>::max(), false, false);
+            if (!choice.native_direct) {
+                throw std::runtime_error("Hierarchical insertion MSA exceeds bounded NativeMSA: " +
+                                         choice.explanation +
+                                         ". Adaptive insertion-block handling is not implemented yet.");
+            }
+            if (stats.contains_gaps) {
+                throw std::runtime_error(
+                    "Hierarchical native insertion MSA received pre-aligned gaps; "
+                    "gap-aware refinement is not implemented yet");
+            }
+        }
+
         // Execute MSA or copy file
         if (!keep_length) {
             spdlog::info("Running MSA on insertion sequences");
@@ -610,7 +646,7 @@ namespace align {
     // Function: read SAM batch, parallel conversion to FASTA, serial write output
     // ==================================================================
     void RefAligner::processSamFileBatch(
-        seq_io::SamReader& sam_reader,
+        ordered_sam::Reader& sam_reader,
         const std::size_t batch_size,
         seq_io::SeqWriter& final_writer,
         const std::unordered_map<std::string, cigar::Cigar_t>& ref_aligned_map,
@@ -675,6 +711,81 @@ namespace align {
     // ==================================================================
     void RefAligner::mergeAlignedResults(const FilePath output, std::size_t batch_size)
     {
+        // Output must not survive a failure in the insertion stage or in the
+        // final rectangularity check. Declare this before the writer so its
+        // destructor runs after file streams have been closed on exceptions.
+        struct PartialOutputGuard {
+            FilePath path;
+            bool complete = false;
+            ~PartialOutputGuard() noexcept {
+                if (!complete) {
+                    std::error_code ignored;
+                    std::filesystem::remove(path, ignored);
+                }
+            }
+        } partial_output{output};
+
+        // PR3B.5A: opt-in short-DNA site-local MSA. Do not feed full
+        // insertion-bearing queries through a second global progressive MSA.
+        // SAMs are already aligned to the consensus, so preserve each anchor
+        // column and align only the inserted bases at each CIGAR locus.
+        if (anchored_insertions) {
+            if (keep_length || ref_sequences.size() != 1)
+                throw std::runtime_error("Anchored insertion mode needs one consensus and keep_length=false");
+            ordered_sam::Reader normal(outs_path);
+            ordered_sam::Reader inserted(outs_with_insertion_path);
+            seq_io::SamRecord normal_rec, inserted_rec;
+            bool has_normal = normal.next(normal_rec);
+            bool has_inserted = inserted.next(inserted_rec);
+            std::vector<::align::anchored_insertions::Query> queries;
+            ::align::anchored_insertions::Options limits;
+            limits.soft_anchors = soft_anchors;
+            limits.soft_anchor_recruit = soft_anchor_recruit;
+            std::size_t total = consensus_seq.seq.size();
+            while (has_normal || has_inserted) {
+                const bool use_normal = has_normal &&
+                    (!has_inserted || ordered_sam::getOrdinal(normal_rec) <
+                                     ordered_sam::getOrdinal(inserted_rec));
+                if (has_normal && has_inserted &&
+                    ordered_sam::getOrdinal(normal_rec) == ordered_sam::getOrdinal(inserted_rec))
+                    throw std::runtime_error("Duplicated query in insertion and normal SAM streams");
+                const auto& record = use_normal ? normal_rec : inserted_rec;
+                const std::uint64_t ordinal = ordered_sam::getOrdinal(record);
+                if (ordinal != queries.size() || record.rname != consensus_seq.id || record.pos != 1)
+                    throw std::runtime_error("Anchored insertion mode requires consecutive, consensus-global SAMs");
+                if (queries.size() >= limits.max_sequences ||
+                    record.seq.size() > limits.max_total_bases - total)
+                    throw std::runtime_error("Anchored insertion mode exceeds its safe 64-query/100kb budget");
+                total += record.seq.size();
+                queries.push_back({record.qname, record.seq, record.cigar, ordinal});
+                if (use_normal) has_normal = normal.next(normal_rec);
+                else has_inserted = inserted.next(inserted_rec);
+            }
+            const auto assembled = ::align::anchored_insertions::align(consensus_seq.seq, queries, limits);
+            {
+                seq_io::SeqWriter writer(output, 80);
+                for (const auto& row : assembled.rows)
+                    writer.writeFasta(seq_io::SeqRecord{row.id, "", row.bases, ""});
+                writer.flush();
+            }
+            const auto checked = align_strategy::scanRectangularFasta(output);
+            if (checked.sequence_count != assembled.rows.size() ||
+                checked.longest_bases != assembled.columns)
+                throw std::runtime_error("Anchored output FASTA failed rectangularity check");
+            spdlog::info("Anchored hierarchical MSA: {} queries + center, {} columns, "
+                         "{} insertion sites, {} local abPOA calls", queries.size(),
+                         assembled.columns, assembled.occupied_sites, assembled.local_msas);
+            if (soft_anchors) {
+                spdlog::info("Soft anchor candidates: {}, accepted splits: {}",
+                             assembled.soft_anchor_candidates, assembled.soft_anchor_splits);
+                if (soft_anchor_recruit)
+                    spdlog::info("Soft anchor V3 recruited splits: {}",
+                                 assembled.soft_anchor_recruits);
+            }
+            partial_output.complete = true;
+            return;
+        }
+
         ProgressBar progress("merge");
 
         const FilePath result_dir = work_dir / RESULTS_DIR;
@@ -697,8 +808,23 @@ namespace align {
         // 3. Process insertion sequences
         processInsertionSequences(result_dir, aligned_insertion_fasta, ref_aligned_map);
 
-        // 4. Parse insertion sequence alignment information
-        parseAlignedReferencesToCigar(aligned_insertion_fasta, insertion_aligned_map,
+        // 4. The reference and insertion MSAs can place gaps in DIFFERENT
+        // consensus columns. Reconcile both profiles before writing any row or
+        // constructing CIGAR maps. Otherwise the final FASTA can be ragged or,
+        // worse, rectangular but positionally incorrect.
+        FilePath projected_references = consensus_aligned_file;
+        FilePath projected_insertions = aligned_insertion_fasta;
+        if (!keep_length) {
+            projected_references = result_dir / "consensus_aligned_projected.fasta";
+            projected_insertions = result_dir / "insertion_aligned_projected.fasta";
+            const auto columns = profile_projection::reconcileFastaProfiles(
+                consensus_aligned_file, aligned_insertion_fasta,
+                projected_references, projected_insertions, consensus_seq.seq);
+            spdlog::info("Reconciled hierarchical MSA profiles into {} columns", columns);
+            // Rebuild all reference CIGARs from the projected alignment.
+            parseAlignedReferencesToCigar(projected_references, ref_aligned_map, ref_gap_pos);
+        }
+        parseAlignedReferencesToCigar(projected_insertions, insertion_aligned_map,
                                       insertion_ref_gap_pos);
         ref_aligned_map[consensus_seq.id] = insertion_aligned_map[consensus_seq.id];
 
@@ -710,10 +836,10 @@ namespace align {
         bool length_initialized = false;
 
         // 5. Write consensus and reference sequences
-        seq_count = writeConsensusAndReferences(final_writer, consensus_aligned_file, progress);
+        seq_count = writeConsensusAndReferences(final_writer, projected_references, progress);
 
         // 6. Write insertion sequences
-        seq_count += writeInsertionSequences(final_writer, aligned_insertion_fasta,
+        seq_count += writeInsertionSequences(final_writer, projected_insertions,
                                             expected_length, length_initialized, progress);
 
         // 7. Batch process SAM files
@@ -724,19 +850,30 @@ namespace align {
         spdlog::info("Processing SAM files: {} files, batch size {}",
                     outs_path.size(), effective_batch_size);
 
-        for (const auto& sam_path : outs_path) {
-            seq_io::SamReader sam_reader(sam_path);
-            processSamFileBatch(sam_reader, effective_batch_size, final_writer,
-                               ref_aligned_map, estimated_final_length,
-                               expected_length, length_initialized, seq_count, progress);
-        }
+        ordered_sam::Reader sam_reader(outs_path);
+        processSamFileBatch(sam_reader, effective_batch_size, final_writer,
+                           ref_aligned_map, estimated_final_length,
+                           expected_length, length_initialized, seq_count, progress);
 
         final_writer.flush();
 
-        // 8. Finish
+        // 8. A merged FASTA must be rectangular too. Individual MSA checks
+        // do not guarantee that references, insertion rows and SAM-projected
+        // rows all have the same final width. Reject unsafe output.
+        const auto stats = align_strategy::scanRectangularFasta(output);
+        if (stats.sequence_count != seq_count ||
+            (length_initialized && stats.longest_bases != expected_length)) {
+            throw std::runtime_error(
+                "Hierarchical MSA merge count/width differs from written rows");
+        }
+        spdlog::info("Validated hierarchical MSA: {} rows x {} columns",
+                     stats.sequence_count, stats.longest_bases);
+
+        // 9. Finish
         progress.done();
         spdlog::info("Merge completed: {} sequences total, length {}",
                     seq_count, expected_length);
+        partial_output.complete = true;
     }
 
     // ==================================================================

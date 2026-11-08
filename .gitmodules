@@ -1,0 +1,3 @@
+[submodule "extern/abPOA"]
+	path = extern/abPOA
+	url = https://github.com/yangao07/abPOA.git

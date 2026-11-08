@@ -37,6 +37,10 @@ public:
     // Notes: Returns move semantics of SeqRecord, avoid copying large strings.
     std::vector<seq_io::SeqRecord> takeSortedDesc();
 
+    // Return selected sequences by original FASTA order (not descending length).
+    // Intended for direct MSA: progressive POA is sensitive to input order.
+    std::vector<seq_io::SeqRecord> takeInInputOrder();
+
 private:
     struct Item
     {

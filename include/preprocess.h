@@ -51,7 +51,10 @@
 //
 // Conventions:
 //  - The function will try to modify and write data in place to reduce memory peaks; Top-K selector will keep K complete records in memory.
-uint_t preprocessInputFasta(const std::string input_path, const std::string workdir, const int cons_n = 1000);
+// preserve_input_order=true applies only to direct native MSA. The hierarchical
+// consensus path must keep its longest-first selection policy.
+uint_t preprocessInputFasta(const std::string input_path, const std::string workdir,
+                            const int cons_n = 1000, bool preserve_input_order = false);
 
 
 // ==============================================================

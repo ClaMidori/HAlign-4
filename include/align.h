@@ -4,6 +4,8 @@
 #ifndef HALIGN4_ALIGN_H
 #define HALIGN4_ALIGN_H
 #include "utils.h"
+#include "align/ordered_sam.hpp"
+#include <cstdint>
 #include "mash.h"
 #include "seed.h"
 #include "ksw2.h"
@@ -345,7 +347,8 @@ namespace align {
                    int kmer_size = 21, int window_size = 10,
                    int sketch_size = 2000, bool noncanonical = true,
                    int threads = 1, std::string msa_cmd = "",
-                   bool keep_length = false);
+                   bool keep_length = false, bool anchored_insertions = false,
+                   bool soft_anchors = false, bool soft_anchor_recruit = false);
 
         // ------------------------------------------------------------------
         // Constructor 2: Initialization based on Options struct (recommended)
@@ -466,13 +469,15 @@ namespace align {
         //   - out and out_insertion are managed by the caller (per-thread)
         // ------------------------------------------------------------------
         void alignOneQueryToRef(const seq_io::SeqRecord& q,
+                               std::uint64_t ordinal,
                                seq_io::SeqWriter& out,
                                seq_io::SeqWriter& out_insertion) const;
 
 
         // Helper function: write SAM record (select correct reference name and output file)
         void writeSamRecord(const seq_io::SeqRecord& q, const cigar::Cigar_t& cigar,
-                           std::string_view ref_name, seq_io::SeqWriter& out) const;
+                           std::string_view ref_name, seq_io::SeqWriter& out,
+                           std::uint64_t ordinal) const;
 
         // ------------------------------------------------------------------
         // Helper function: mergeConsensusAndSamToFasta
@@ -545,7 +550,7 @@ namespace align {
         // Function: Read SAM batch, convert to FASTA in parallel, write output serially
         // ------------------------------------------------------------------
         void processSamFileBatch(
-            seq_io::SamReader& sam_reader,
+            ordered_sam::Reader& sam_reader,
             const std::size_t batch_size,
             seq_io::SeqWriter& final_writer,
             const std::unordered_map<std::string, cigar::Cigar_t>& ref_aligned_map,
@@ -621,6 +626,9 @@ namespace align {
         int threads = 1;            // OpenMP thread count (<=0 usually means let runtime decide; see .cpp for logic)
         std::string msa_cmd;        // External MSA command template (for consensus generation and insertion sequence MSA)
 
+        bool anchored_insertions = false; // opt-in bounded anchor-preserving insertion MSA
+        bool soft_anchors = false; // experimental low-support haplotype rescue
+        bool soft_anchor_recruit = false; // optional V3 fallback, disabled by default
         bool keep_length = false; // true: trim columns where consensus is a gap, keep the original length of the central sequence
 
         // ------------------------------------------------------------------

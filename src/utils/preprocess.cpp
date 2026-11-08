@@ -6,6 +6,8 @@
 #include <filesystem>
 #include <stdexcept>
 #include "msa_validation.hpp"
+#include "align/native_msa.hpp"
+#include <vector>
 
 // This document contains the preprocessing logic for the FASTA input:
 // - The input file (which can be a local path or a URL) is retrieved to the data/raw directory in the working directory;
@@ -17,7 +19,8 @@
 // Explanation: The FilePath used here is file_io::FilePath (i.e., an alias for std::filesystem::path), which provides convenient path manipulation and is used throughout the codebase for file handling. The file_io namespace contains utility functions for file operations, such as checking if a path is a URL, ensuring directories exist, and handling file I/O errors. The preprocessInputFasta function will utilize these utilities to manage input files and directories effectively while performing the necessary preprocessing steps on the FASTA sequences.
 // The seq_io namespace encapsulates the details of reading/writing FASTA (openKseqReader / SeqWriter / SeqRecord, etc.).
 
-uint_t preprocessInputFasta(const std::string input_path, const std::string workdir, const int cons_n) {
+uint_t preprocessInputFasta(const std::string input_path, const std::string workdir,
+                            const int cons_n, bool preserve_input_order) {
     // Parameter description:
     // - input_path: Enter the path or URL (string) of FASTA.
     // - workdir: The working directory path (which should already be prepared or guaranteed by the caller). Subdirectories such as data/raw and data/clean will be created under this directory.
@@ -149,7 +152,10 @@ uint_t preprocessInputFasta(const std::string input_path, const std::string work
     // ---------- Write TopK results to consensus input file ----------
     // Note: takeSortedDesc returns records sorted by length in descending order (typically used to select the longest N sequences for consensus generation)
     seq_io::SeqWriter cons_writer(consensus_file);
-    auto cons_seqs = selector.takeSortedDesc();
+    // For direct native MSA, preserve FASTA input order. The default remains
+    // longest-first for the hierarchical consensus selection pathway.
+    auto cons_seqs = preserve_input_order
+        ? selector.takeInInputOrder() : selector.takeSortedDesc();
 
     // Write the selected sequences to the consensus file; keep consistent line-wrapping rules, which SeqWriter handles.
     for (const auto& cons_rec : cons_seqs) {
@@ -186,14 +192,45 @@ void alignConsensusSequence(const FilePath& input_file, const FilePath& output_f
     std::filesystem::remove(output_file);  // Clear stale output before launching.
 
     const auto start = std::chrono::steady_clock::now();
-    const auto command = cmd::buildCommand(
-        msa_cmd, input_file.string(), output_file.string(), threads, cmd::BuildOptions{});
-    spdlog::info("Starting MSA command: {}", command);
     try {
-        const int rc = cmd::runCommand(command);
-        if (rc != 0) {
-            throw std::runtime_error("MSA command failed (exit code " +
-                                     std::to_string(rc) + "): " + command);
+        if (msa_cmd == "native") {
+            native_msa::Options budget;
+            std::vector<native_msa::Sequence> input;
+            auto reader = seq_io::openKseqReader(input_file);
+            seq_io::SeqRecord record;
+            std::size_t total_bases = 0;
+
+            // Bound input before calling the C API; no unbounded direct MSA.
+            while (reader->next(record)) {
+                if (input.size() >= budget.max_sequences ||
+                    record.seq.size() > budget.max_sequence_bases ||
+                    record.seq.size() > budget.max_total_bases - total_bases) {
+                    throw std::runtime_error(
+                        "NativeMSA direct input exceeds the 64-sequence / 25kb-per-sequence "
+                        "/ 100kb-total safety budget; use the legacy backend for now");
+                }
+                total_bases += record.seq.size();
+                input.push_back({record.id, record.seq});
+            }
+            spdlog::info("Running in-process abPOA for {} sequences ({} bases)",
+                         input.size(), total_bases);
+            const auto result = native_msa::align(input, budget);
+            {
+                seq_io::SeqWriter writer(output_file, 80, 0);
+                for (const auto& row : result.rows) {
+                    writer.write(seq_io::SeqRecord{row.id, "", row.bases, ""});
+                }
+                writer.flush();
+            }
+        } else {
+            const auto command = cmd::buildCommand(
+                msa_cmd, input_file.string(), output_file.string(), threads, cmd::BuildOptions{});
+            spdlog::info("Starting MSA command: {}", command);
+            const int rc = cmd::runCommand(command);
+            if (rc != 0) {
+                throw std::runtime_error("MSA command failed (exit code " +
+                                         std::to_string(rc) + "): " + command);
+            }
         }
 
         const auto stats = msa::validateFastaAlignment(input_file, output_file);
