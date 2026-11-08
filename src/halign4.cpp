@@ -86,6 +86,23 @@ int main(int argc, char** argv) {
         logParsedOptions(opt);
         spdlog::info("Starting halign4 version {}...", VERSION);
 
+        // PR3C.2 is deliberately opt-in: the historic --mode auto and
+        // --mode direct routing remain untouched. Conflicting flags must be
+        // rejected before the scanner, workdir creation or external execution.
+        if (opt.auto_hierarchical) {
+            if (opt.mode != "auto") {
+                throw std::invalid_argument("--auto-hierarchical requires --mode auto");
+            }
+            if (opt.keep_length || !opt.center_path.empty() ||
+                opt.anchored_insertions || opt.native_center ||
+                opt.soft_anchors || opt.soft_anchor_recruit) {
+                throw std::invalid_argument(
+                    "--auto-hierarchical manages backend options automatically: "
+                    "do not pass --keep-length, --center-path, --native-center, "
+                    "--anchored-insertions, --soft-anchors or --soft-anchor-recruit");
+            }
+        }
+
         // The experimental hierarchical center is a separate opt-in. Never
         // allow the direct/auto router to silently reinterpret its parameters.
         if (opt.native_center && opt.mode != "legacy") {
@@ -107,20 +124,48 @@ int main(int argc, char** argv) {
                 native_limits.max_sequence_bases,
                 native_limits.max_total_bases
             };
-            const auto choice = align_strategy::chooseNativeDirect(
-                stats, budget, static_cast<std::uint64_t>(opt.cons_n),
-                opt.keep_length, !opt.center_path.empty());
             spdlog::info("Alignment input: {} sequences, {} bases, min={} max={}",
                          stats.sequence_count, stats.total_bases,
                          stats.shortest_bases, stats.longest_bases);
-            if (!choice.native_direct) {
-                throw std::runtime_error("--mode " + opt.mode + ": " + choice.explanation +
-                    ". PR3A intentionally does not auto-route large input to the "
-                    "legacy Python chunker. Use --mode legacy explicitly, or wait "
-                    "for native hierarchical/ultralong routing.");
+            if (opt.auto_hierarchical) {
+                if (opt.cons_n <= 0) {
+                    throw std::invalid_argument("--auto-hierarchical requires positive --cons-n");
+                }
+                const auto route = align_strategy::chooseBoundedAuto(
+                    stats, budget, static_cast<std::uint64_t>(opt.cons_n));
+                if (route.backend == align_strategy::AutoBackend::Reject) {
+                    throw std::runtime_error("--auto-hierarchical rejected input: " +
+                                             route.explanation);
+                }
+                if (route.backend == align_strategy::AutoBackend::NativeHierarchical) {
+                    // Reuse the fully validated PR3C.1 explicit backend, not
+                    // a second implementation. Switch only after routing.
+                    // This is the internal selection of the legacy *pipeline*,
+                    // never the legacy external-MSA backend.
+                    opt.mode = "legacy";
+                    opt.native_center = true;
+                    opt.anchored_insertions = true;
+                    opt.soft_anchors = true;
+                    opt.soft_anchor_recruit = true;
+                    spdlog::info("Selected bounded auto hierarchical: {}", route.explanation);
+                } else {
+                    spdlog::info("Selected bounded auto direct: {}", route.explanation);
+                }
+                opt.msa_cmd = "native";
+            } else {
+                // Preserve the original --mode auto/direct behavior exactly.
+                const auto choice = align_strategy::chooseNativeDirect(
+                    stats, budget, static_cast<std::uint64_t>(opt.cons_n),
+                    opt.keep_length, !opt.center_path.empty());
+                if (!choice.native_direct) {
+                    throw std::runtime_error("--mode " + opt.mode + ": " + choice.explanation +
+                        ". PR3A intentionally does not auto-route large input to the "
+                        "legacy Python chunker. Use --mode legacy explicitly, or wait "
+                        "for native hierarchical/ultralong routing.");
+                }
+                spdlog::info("Selected bounded NativeMSA: {}", choice.explanation);
+                opt.msa_cmd = "native";
             }
-            spdlog::info("Selected bounded NativeMSA: {}", choice.explanation);
-            opt.msa_cmd = "native";
         }
 
         // PR3C.1: opt-in, bounded in-process Top-K center. The same native

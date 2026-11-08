@@ -145,6 +145,7 @@ add_executable(halign4_tests
         "${CMAKE_CURRENT_LIST_DIR}/test_anchor.cpp"
         "${CMAKE_CURRENT_LIST_DIR}/test_native_msa.cpp"
         "${CMAKE_CURRENT_LIST_DIR}/test_strategy.cpp"
+        "${CMAKE_CURRENT_LIST_DIR}/test_auto_hierarchical.cpp"
         "${CMAKE_CURRENT_LIST_DIR}/test_profile_projection.cpp"
         "${CMAKE_CURRENT_LIST_DIR}/test_ordered_sam.cpp"
         "${CMAKE_CURRENT_LIST_DIR}/test_anchored_insertions.cpp"
@@ -236,3 +237,6 @@ add_test(NAME anchored_insertions COMMAND halign4_tests --test-suite=anchored_in
 add_test(NAME soft_anchors COMMAND halign4_tests --test-suite=soft_anchors)
 
 add_test(NAME soft_anchor_recruit COMMAND halign4_tests --test-suite=soft_anchor_recruit)
+
+# PR3C.2 is opt-in and covered by a separate CTest group.
+add_test(NAME auto_hierarchical COMMAND halign4_tests --test-suite=auto_hierarchical)
