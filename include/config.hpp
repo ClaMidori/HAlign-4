@@ -203,6 +203,7 @@ struct Options {
 	// keep length related switch:
 	// - keep_length: keep the length of the "first/center sequence" unchanged (other sequences can change/fill according to alignment results), suitable for scenarios where only the output consensus/center sequence length is concerned.
 	bool anchored_insertions = false; // --anchored-insertions: experimental bounded site-local MSA
+	bool native_center = false; // --native-center: native Top-K hierarchical center MSA; opt-in
 	bool soft_anchors = false; // --soft-anchors: experimental low-support center block rescue
 	bool soft_anchor_recruit = false; // --soft-anchor-recruit: optional V3 fallback for divergent families
 	bool keep_length = false; // --keep-length
@@ -293,6 +294,8 @@ static void setupCli(CLI::App& app, Options& opt) {
 
     app.add_flag("--anchored-insertions", opt.anchored_insertions,
                  "Experimental bounded hierarchical assembly: keep consensus anchors and locally align insertions with in-process abPOA. Requires --mode legacy.");
+    app.add_flag("--native-center", opt.native_center,
+                 "Experimental Top-K hierarchical center MSA using in-process abPOA. Requires --mode legacy and --anchored-insertions; no --center-path or external -p.");
     app.add_flag("--soft-anchors", opt.soft_anchors,
                  "Experimental opt-in: split unsupported center blocks into distinct haplotype lanes. Requires --anchored-insertions.");
     app.add_flag("--soft-anchor-recruit", opt.soft_anchor_recruit,
@@ -370,6 +373,7 @@ static void logParsedOptions(const Options& opt) {
         {"center-path", toString(opt.center_path, valW)},
         {"msa_cmd", toString(opt.msa_cmd, valW)},
         {"mode", toString(opt.mode, valW)},
+        {"native-center", boolToStr(opt.native_center)},
         {"threads", std::to_string(opt.threads)},
         {"kmer-size", std::to_string(opt.kmer_size)},
         {"kmer-window", std::to_string(opt.kmer_window)},

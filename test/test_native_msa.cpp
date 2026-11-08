@@ -150,3 +150,42 @@ TEST_SUITE("native_msa") {
         fs::remove_all(tmp, ec);
     }
 }
+
+TEST_SUITE("native_msa") {
+    TEST_CASE("hierarchical Top-3 center can be generated in-process while preserving longest-first order") {
+        namespace fs = std::filesystem;
+        const auto tmp = fs::temp_directory_path() /
+            ("halign4_native_center_" + std::to_string(
+                std::chrono::steady_clock::now().time_since_epoch().count()));
+        fs::create_directories(tmp);
+        const auto input = tmp / "input.fasta";
+        {
+            std::ofstream out(input);
+            out << ">short\nACGT\n>long1\nACGTACGTACGTACGT\n"
+                << ">middle\nACGTACGTACGT\n>long2\nACGTACGTACGTACG\n"
+                << ">shorter\nACGTAC\n";
+        }
+        const auto work = tmp / "work";
+        REQUIRE(preprocessInputFasta(input.string(), work.string(), 3, false) == 5);
+        const auto top3 = work / WORKDIR_DATA / DATA_CLEAN / CLEAN_CONS_UNALIGNED;
+        {
+            std::vector<std::string> ids;
+            auto reader = seq_io::openKseqReader(top3);
+            seq_io::SeqRecord record;
+            while (reader->next(record)) ids.push_back(record.id);
+            const std::vector<std::string> expected = {"long1", "long2", "middle"};
+            CHECK(ids == expected);
+        }
+        const auto aligned = tmp / "top3_aligned.fasta";
+        CHECK_NOTHROW(alignConsensusSequence(top3, aligned, "native", 2));
+        CHECK_NOTHROW(msa::validateFastaAlignment(top3, aligned));
+        const auto center = tmp / "consensus.fasta";
+        const auto json = tmp / "consensus.json";
+        const std::string consensus_seq = consensus::generateConsensusSequence(
+            aligned, center, json, 3, 2, 4096);
+        CHECK_FALSE(consensus_seq.empty());
+        CHECK(fs::exists(center));
+        std::error_code ec;
+        fs::remove_all(tmp, ec);
+    }
+}

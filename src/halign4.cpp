@@ -86,6 +86,12 @@ int main(int argc, char** argv) {
         logParsedOptions(opt);
         spdlog::info("Starting halign4 version {}...", VERSION);
 
+        // The experimental hierarchical center is a separate opt-in. Never
+        // allow the direct/auto router to silently reinterpret its parameters.
+        if (opt.native_center && opt.mode != "legacy") {
+            throw std::invalid_argument("--native-center requires --mode legacy");
+        }
+
         // PR3A: make the routing decision *before* preprocessing (which keeps
         // the Top-K full sequences in RAM). Explicit -p remains available in
         // the legacy mode; auto/direct cannot silently override it.
@@ -117,6 +123,28 @@ int main(int argc, char** argv) {
             opt.msa_cmd = "native";
         }
 
+        // PR3C.1: opt-in, bounded in-process Top-K center. The same native
+        // backend is already used by direct MSA and local insertion MSAs.
+        // Crucially this is NOT the native direct routing: Top-K must remain
+        // longest-first, and all queries still pass through the anchored
+        // hierarchical alignment below.
+        if (opt.native_center) {
+            if (!opt.anchored_insertions || opt.keep_length ||
+                !opt.center_path.empty() || opt.cons_n < 2 || opt.cons_n > 64) {
+                throw std::invalid_argument(
+                    "--native-center requires --anchored-insertions, --keep-length off, "
+                    "no --center-path, and --cons-n between 2 and 64");
+            }
+            // An explicit external -p is contradictory, rather than silently
+            // ignored. -p native is accepted as redundant for convenience.
+            if (!opt.msa_cmd.empty() && resolveMsaCmdTemplate(opt.msa_cmd) != "native") {
+                throw std::invalid_argument(
+                    "--native-center conflicts with external -p/--msa-cmd; omit -p");
+            }
+            opt.msa_cmd = "native";
+            spdlog::info("Experimental native hierarchical center enabled (Top-{} longest)", opt.cons_n);
+        }
+
         if (opt.soft_anchors && !opt.anchored_insertions) {
             throw std::invalid_argument("--soft-anchors requires --anchored-insertions");
         }
@@ -128,9 +156,9 @@ int main(int argc, char** argv) {
         // pipeline and PR3A direct/auto routing remain unchanged.
         if (opt.anchored_insertions &&
             (opt.mode != "legacy" || opt.keep_length ||
-             resolveMsaCmdTemplate(opt.msa_cmd) == "native")) {
+             (resolveMsaCmdTemplate(opt.msa_cmd) == "native" && !opt.native_center))) {
             throw std::invalid_argument("--anchored-insertions requires --mode legacy, "
-                                        "--keep-length off, and an external center MSA command");
+                                        "--keep-length off; native center requires --native-center");
         }
 
         if (opt.anchored_insertions) {
@@ -160,7 +188,8 @@ int main(int argc, char** argv) {
 
         // preprocessing
         const uint_t preproc_count = preprocessInputFasta(
-            opt.input, opt.workdir, opt.cons_n, opt.msa_cmd == "native");
+            opt.input, opt.workdir, opt.cons_n,
+            opt.msa_cmd == "native" && !opt.native_center);
         spdlog::info("Preprocessing produced {} records", preproc_count);
 
         if (opt.anchored_insertions && preproc_count <= static_cast<uint_t>(opt.cons_n)) {
@@ -170,7 +199,7 @@ int main(int argc, char** argv) {
         // PR 2B: deliberately expose only safe, small direct MSA. Do not
         // silently enter the hierarchical path with size-limited NativeMSA.
         // PR 3 will add budget-based automatic backend selection.
-        if (opt.msa_cmd == "native" &&
+        if (opt.msa_cmd == "native" && !opt.native_center &&
             (preproc_count > static_cast<uint_t>(opt.cons_n) || preproc_count > 64 ||
              opt.keep_length || !opt.center_path.empty())) {
             throw std::runtime_error(
