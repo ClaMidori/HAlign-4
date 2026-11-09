@@ -5,6 +5,7 @@
 
 #include "align.h"
 #include "align/strategy.hpp"
+#include "align/homology_plan.hpp"
 #include "align/native_msa.hpp"
 
 // Program entry: command line parsing -> preprocessing -> consensus alignment -> sequence alignment -> result merging -> cleanup working directory
@@ -85,6 +86,26 @@ int main(int argc, char** argv) {
         // Print parameters
         logParsedOptions(opt);
         spdlog::info("Starting halign4 version {}...", VERSION);
+
+        // PR3D.1 audit-only fast exit. Do not preprocess, route, align, create
+        // a work directory, launch abPOA, or write any FASTA/MSA results.
+        // This branch runs before PR3C.2 routing and the old checkOption().
+        if (opt.homology_plan) {
+            if (opt.mode != "legacy" || opt.keep_length || !opt.center_path.empty() ||
+                !opt.msa_cmd.empty() || opt.anchored_insertions || opt.native_center ||
+                opt.auto_hierarchical || opt.soft_anchors || opt.soft_anchor_recruit) {
+                throw std::invalid_argument(
+                    "--homology-plan is standalone: omit MSA/center/routing flags "
+                    "(leave --mode legacy, its default)");
+            }
+            const auto reads = homology_plan::readFasta(opt.input);
+            const auto plan = homology_plan::build(reads);
+            homology_plan::writeTsv(plan, opt.output);
+            spdlog::info("PR3D.1 diagnostic saved {} reference blocks for {} sequences to {} "
+                         "(no MSA generated)",
+                         plan.boundaries.size() - 1, plan.ids.size(), opt.output);
+            return 0;
+        }
 
         // PR3C.2 is deliberately opt-in: the historic --mode auto and
         // --mode direct routing remain untouched. Conflicting flags must be

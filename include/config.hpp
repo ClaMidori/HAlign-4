@@ -208,6 +208,7 @@ struct Options {
 	bool soft_anchors = false; // --soft-anchors: experimental low-support center block rescue
 	bool soft_anchor_recruit = false; // --soft-anchor-recruit: optional V3 fallback for divergent families
 	bool keep_length = false; // --keep-length
+    bool homology_plan = false; // --homology-plan: diagnostic only, -o is TSV
 	// workdir cleanup switch:
 	// - save_workdir: if true, keep the working directory after alignment/output completion; if false (default), delete the working directory after successful completion.
 	bool save_workdir = false;      // --save-workdir
@@ -285,6 +286,10 @@ static void setupCli(CLI::App& app, Options& opt) {
     // - This command will do a tiny.fasta smoke test during parameter validation; if the environment lacks this tool, it will directly error.
     app.add_option("-p,--msa-cmd", opt.msa_cmd,
                    "High-quality MSA method: keyword {native|abpoa|mafft|clustalo} or a custom command template containing {input} and {output} (optional {thread}).");
+
+    app.add_flag("--homology-plan", opt.homology_plan,
+                 "Diagnostic only: -o writes a candidate homology-block TSV, not an MSA. "
+                 "Requires -i and -o; currently supports up to 8 DNA sequences, 1Mb each, 4Mb total.");
 
     // PR3A: only the bounded direct path is automatic so far. Long and
     // hierarchical requests are rejected in auto mode, never silently sent

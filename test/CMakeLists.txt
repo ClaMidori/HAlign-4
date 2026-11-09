@@ -44,6 +44,7 @@ add_library(halign4_test_support STATIC
         "${HALIGN4_ROOT}/src/align/align.cpp"
         "${HALIGN4_ROOT}/src/align/native_msa.cpp"
         "${HALIGN4_ROOT}/src/align/strategy.cpp"
+        "${HALIGN4_ROOT}/src/align/homology_plan.cpp"
         "${HALIGN4_ROOT}/src/align/profile_projection.cpp"
         "${HALIGN4_ROOT}/src/align/ordered_sam.cpp"
         "${HALIGN4_ROOT}/src/align/anchored_insertions.cpp"
@@ -146,6 +147,7 @@ add_executable(halign4_tests
         "${CMAKE_CURRENT_LIST_DIR}/test_native_msa.cpp"
         "${CMAKE_CURRENT_LIST_DIR}/test_strategy.cpp"
         "${CMAKE_CURRENT_LIST_DIR}/test_auto_hierarchical.cpp"
+        "${CMAKE_CURRENT_LIST_DIR}/test_homology_plan.cpp"
         "${CMAKE_CURRENT_LIST_DIR}/test_profile_projection.cpp"
         "${CMAKE_CURRENT_LIST_DIR}/test_ordered_sam.cpp"
         "${CMAKE_CURRENT_LIST_DIR}/test_anchored_insertions.cpp"
@@ -240,3 +242,6 @@ add_test(NAME soft_anchor_recruit COMMAND halign4_tests --test-suite=soft_anchor
 
 # PR3C.2 is opt-in and covered by a separate CTest group.
 add_test(NAME auto_hierarchical COMMAND halign4_tests --test-suite=auto_hierarchical)
+
+# PR3D.1 diagnostic-only: does not create an MSA.
+add_test(NAME homology_plan COMMAND halign4_tests --test-suite=homology_plan)

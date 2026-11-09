@@ -39,6 +39,7 @@ add_executable(halign4
         src/align/align.cpp
         src/align/native_msa.cpp
         src/align/strategy.cpp
+        src/align/homology_plan.cpp
         src/align/profile_projection.cpp
         src/align/ordered_sam.cpp
         src/align/anchored_insertions.cpp
