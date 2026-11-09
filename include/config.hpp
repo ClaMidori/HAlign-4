@@ -209,6 +209,8 @@ struct Options {
 	bool soft_anchor_recruit = false; // --soft-anchor-recruit: optional V3 fallback for divergent families
 	bool keep_length = false; // --keep-length
     bool homology_plan = false; // --homology-plan: diagnostic only, -o is TSV
+    bool strict_homology_plan = false; // --homology-plan-strict: opt-in PR3D.2B interior consistency veto
+    bool recover_homology_plan = false; // --homology-plan-recover: opt-in PR3D.2C split around supported jumps
 	// workdir cleanup switch:
 	// - save_workdir: if true, keep the working directory after alignment/output completion; if false (default), delete the working directory after successful completion.
 	bool save_workdir = false;      // --save-workdir
@@ -290,6 +292,10 @@ static void setupCli(CLI::App& app, Options& opt) {
     app.add_flag("--homology-plan", opt.homology_plan,
                  "Diagnostic only: -o writes a candidate homology-block TSV, not an MSA. "
                  "Requires -i and -o; currently supports up to 8 DNA sequences, 1Mb each, 4Mb total.");
+    app.add_flag("--homology-plan-strict", opt.strict_homology_plan,
+                 "Opt-in PR3D.2B: veto projected candidate blocks with internally inconsistent spans or anchors. Requires --homology-plan.");
+    app.add_flag("--homology-plan-recover", opt.recover_homology_plan,
+                 "Opt-in PR3D.2C: split suspected indels into evidence-supported flanks and unresolved cores. Requires --homology-plan-strict.");
 
     // PR3A: only the bounded direct path is automatic so far. Long and
     // hierarchical requests are rejected in auto mode, never silently sent

@@ -22,6 +22,8 @@ struct Config {
     std::size_t local_span = 10000;
     std::size_t diagonal_tolerance = 32;
     std::size_t min_independent_seeds = 4;
+    bool strict_candidate_guard = false; // PR3D.2B opt-in: diagnose internal discontinuities
+    bool recover_indel_flanks = false; // PR3D.2C: opt-in split around discontinuous anchor lanes
 };
 struct Sequence {
     std::string id;

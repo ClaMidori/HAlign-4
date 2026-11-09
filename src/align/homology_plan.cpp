@@ -302,6 +302,8 @@ Plan build(const std::vector<Sequence>& sequences, Config config, Limits limits)
         config.diagonal_tolerance == 0 || config.diagonal_tolerance > 64 ||
         config.min_independent_seeds != 4)
         throw std::invalid_argument("unsupported PR3D.1 experimental parameters");
+    if (config.recover_indel_flanks && !config.strict_candidate_guard)
+        throw std::invalid_argument("recover_indel_flanks requires strict_candidate_guard");
     Plan plan;
     plan.config = config;
     for (const auto& s : sequences) {plan.ids.push_back(s.id); plan.lengths.push_back(s.bases.size());}
@@ -354,7 +356,96 @@ Plan build(const std::vector<Sequence>& sequences, Config config, Limits limits)
         if (found) plan.boundaries.push_back(std::move(best));
     }
     plan.boundaries.push_back(makeBoundary(ref_len, plan));
+    if (config.recover_indel_flanks) {
+        // Only propose *new global boundaries*. Existing projected endpoints
+        // and the strict interior veto remain mandatory for every fragment.
+        std::vector<std::uint32_t> cuts;
+        constexpr std::uint32_t flank_padding = 512;
+        for (const auto& lane : plan.supported_anchors) {
+            for (std::size_t i = 1; i < lane.size(); ++i) {
+                const auto& prev = lane[i - 1];
+                const auto& next = lane[i];
+                const std::int64_t dr = static_cast<std::int64_t>(next.reference) - prev.reference;
+                const std::int64_t dq = static_cast<std::int64_t>(next.query) - prev.query;
+                if (dr <= 0 || dq <= 0 || std::llabs(dq - dr) < 2048) continue;
+                // Require dense *independent* exact anchor support in both
+                // flanks, not merely one unique k-mer per side.
+                auto supported = [&](std::size_t begin, std::size_t end, std::uint32_t center) {
+                    std::size_t count = 0;
+                    std::uint32_t last = 0;
+                    for (std::size_t j = begin; j < end; ++j) {
+                        if (std::llabs(static_cast<std::int64_t>(lane[j].reference) - center) > 1000) continue;
+                        if (count && lane[j].reference - last < config.k) continue;
+                        ++count;
+                        last = lane[j].reference;
+                        if (count >= 8) return true;
+                    }
+                    return false;
+                };
+                if (!supported(i > 1000 ? i - 1000 : 0, i, prev.reference) ||
+                    !supported(i, std::min(lane.size(), i + 1000), next.reference)) continue;
+                if (prev.reference > flank_padding + 256)
+                    cuts.push_back(prev.reference - flank_padding);
+                if (next.reference + flank_padding < ref_len - 256)
+                    cuts.push_back(next.reference + flank_padding);
+            }
+        }
+        std::sort(cuts.begin(), cuts.end());
+        cuts.erase(std::unique(cuts.begin(), cuts.end()), cuts.end());
+        for (const auto r : cuts) {
+            auto it = std::lower_bound(plan.boundaries.begin(), plan.boundaries.end(), r,
+                [](const Boundary& b, std::uint32_t pos) { return b.reference < pos; });
+            if (it == plan.boundaries.begin() || it == plan.boundaries.end()) continue;
+            const auto before = std::prev(it);
+            if (r - before->reference < 256 ||
+                it->reference - r < 256) continue;
+            auto b = makeBoundary(r, plan);
+            if (b.supporting_queries < min_support) continue;
+            plan.boundaries.insert(it, std::move(b));
+        }
+    }
     return plan;
+}
+
+// PR3D.2B: opt-in, no-oracle evidence that the *interior* of a projected
+// interval is consistent with one forward, locally collinear homology lane.
+// Endpoint estimates alone are insufficient across duplicated/moved segments.
+// This is a conservative diagnostic veto, NOT proof of homology or an MSA.
+bool internallyConsistent(const Plan& plan, std::size_t read_index,
+                          std::uint32_t ra, std::uint32_t rb,
+                          std::uint32_t qa, std::uint32_t qb) {
+    const std::int64_t ref_span = static_cast<std::int64_t>(rb) - ra;
+    const std::int64_t qry_span = static_cast<std::int64_t>(qb) - qa;
+    if (ref_span <= 0 || qry_span <= 0) return false;
+
+    // Allow small indels, but never silently label a whole long insertion,
+    // deletion, or rearranged interval as a single collinear candidate.
+    const std::int64_t max_drift = std::max<std::int64_t>(1024, ref_span / 8);
+    if (std::llabs(qry_span - ref_span) > max_drift) return false;
+
+    const auto& anchors = plan.supported_anchors.at(read_index);
+    const auto first = std::lower_bound(anchors.begin(), anchors.end(), ra,
+        [](const Anchor& x, std::uint32_t r) { return x.reference < r; });
+    const auto last = std::lower_bound(first, anchors.end(), rb,
+        [](const Anchor& x, std::uint32_t r) { return x.reference < r; });
+    if (last - first < 4) return false;
+
+    // Independent support is required across four quarters. A high total
+    // seed count clustered only near both endpoints does not validate the
+    // intervening 20kb region. Bound the implied diagonal inside each quarter.
+    const std::int64_t expected_delta = static_cast<std::int64_t>(qa) - ra;
+    const std::int64_t allowed_anchor_drift = std::max<std::int64_t>(512, ref_span / 8);
+    std::array<bool, 4> covered = {false, false, false, false};
+    for (auto it = first; it != last; ++it) {
+        if (it->query < qa || it->query >= qb) continue;
+        const auto d = static_cast<std::int64_t>(it->query) - it->reference;
+        if (std::llabs(d - expected_delta) > allowed_anchor_drift) continue;
+        const auto quarter = std::min<std::size_t>(3,
+            (static_cast<std::uint64_t>(it->reference - ra) * 4) /
+                static_cast<std::uint64_t>(ref_span));
+        covered[quarter] = true;
+    }
+    return std::all_of(covered.begin(), covered.end(), [](bool v) { return v; });
 }
 
 std::string asTsv(const Plan& plan) {
@@ -365,6 +456,12 @@ std::string asTsv(const Plan& plan) {
         << "# reference=" << plan.ids[0] << "\tlength=" << plan.lengths[0]
         << "\tk=" << plan.config.k << "\ttarget_bp=" << plan.config.target_block_bases << "\n"
         << "# coordinates: 0-based half-open; query boundaries are approximate projections from nearby unique-seed evidence\n"
+        << (plan.config.strict_candidate_guard
+            ? "# PR3D.2B: internal continuity veto enabled; UNRESOLVED is not an alignment\n"
+            : "")
+        << (plan.config.recover_indel_flanks
+            ? "# PR3D.2C: evidence-bracketed discontinuity splits enabled; gap cores remain UNRESOLVED\n"
+            : "")
         << "block\tread_id\tref_start\tref_end\tquery_start_est\tquery_end_est\tleft_anchor_distance\tright_anchor_distance\tsupported_seed_count\tstatus\n";
     for (std::size_t i = 1; i < plan.boundaries.size(); ++i) {
         const auto& left = plan.boundaries[i-1];
@@ -392,7 +489,10 @@ std::string asTsv(const Plan& plan) {
             const auto count = static_cast<std::size_t>(b - a);
             out << '\t' << count << '\t';
             if (l && r && l->estimated_query < r->estimated_query && count >= 3 &&
-                right.reference - left.reference <= 2 * plan.config.target_block_bases)
+                right.reference - left.reference <= 2 * plan.config.target_block_bases &&
+                (!plan.config.strict_candidate_guard ||
+                 internallyConsistent(plan, s-1, left.reference, right.reference,
+                                      l->estimated_query, r->estimated_query)))
                 out << "CANDIDATE_ONLY\n";
             else out << "UNRESOLVED\n";
         }

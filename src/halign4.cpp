@@ -90,6 +90,10 @@ int main(int argc, char** argv) {
         // PR3D.1 audit-only fast exit. Do not preprocess, route, align, create
         // a work directory, launch abPOA, or write any FASTA/MSA results.
         // This branch runs before PR3C.2 routing and the old checkOption().
+        if (opt.strict_homology_plan && !opt.homology_plan)
+            throw std::invalid_argument("--homology-plan-strict requires --homology-plan");
+        if (opt.recover_homology_plan && !opt.strict_homology_plan)
+            throw std::invalid_argument("--homology-plan-recover requires --homology-plan-strict");
         if (opt.homology_plan) {
             if (opt.mode != "legacy" || opt.keep_length || !opt.center_path.empty() ||
                 !opt.msa_cmd.empty() || opt.anchored_insertions || opt.native_center ||
@@ -99,7 +103,10 @@ int main(int argc, char** argv) {
                     "(leave --mode legacy, its default)");
             }
             const auto reads = homology_plan::readFasta(opt.input);
-            const auto plan = homology_plan::build(reads);
+            homology_plan::Config planner_config;
+            planner_config.strict_candidate_guard = opt.strict_homology_plan;
+            planner_config.recover_indel_flanks = opt.recover_homology_plan;
+            const auto plan = homology_plan::build(reads, planner_config);
             homology_plan::writeTsv(plan, opt.output);
             spdlog::info("PR3D.1 diagnostic saved {} reference blocks for {} sequences to {} "
                          "(no MSA generated)",
