@@ -211,9 +211,20 @@ struct Options {
     bool homology_plan = false; // --homology-plan: diagnostic only, -o is TSV
     bool strict_homology_plan = false; // --homology-plan-strict: opt-in PR3D.2B interior consistency veto
     bool recover_homology_plan = false; // --homology-plan-recover: opt-in PR3D.2C split around supported jumps
+    bool homology_extract = false; // --homology-extract: lossless diagnostic tile extraction (no MSA)
+    std::string homology_plan_tsv; // --homology-plan-tsv: previously generated diagnostic TSV
+    bool homology_block_align = false; // --homology-block-align: experimental candidate-only local MSA
+    std::string homology_extract_dir; // --homology-extract-dir: lossless PR3D.3A directory
 	// workdir cleanup switch:
 	// - save_workdir: if true, keep the working directory after alignment/output completion; if false (default), delete the working directory after successful completion.
 	bool save_workdir = false;      // --save-workdir
+    // PR3D.4C-V2: opt-in integrated native bounded-preview MSA.
+    bool ultralong = false;
+    bool ultralong_stream = false; // --ultralong-stream: independent out-of-core MSA path
+    std::string ultralong_report;
+    std::size_t ultralong_max_local_bases = 12000;
+    std::size_t ultralong_max_total_bases = 8000000;
+    double ultralong_min_identity = 0.55;
 };
 
 
@@ -296,6 +307,18 @@ static void setupCli(CLI::App& app, Options& opt) {
                  "Opt-in PR3D.2B: veto projected candidate blocks with internally inconsistent spans or anchors. Requires --homology-plan.");
     app.add_flag("--homology-plan-recover", opt.recover_homology_plan,
                  "Opt-in PR3D.2C: split suspected indels into evidence-supported flanks and unresolved cores. Requires --homology-plan-strict.");
+    app.add_flag("--homology-extract", opt.homology_extract,
+                 "PR3D.3A experimental: extract lossless candidate/unresolved tiles to -o DIRECTORY; no MSA.");
+    app.add_option("--homology-plan-tsv", opt.homology_plan_tsv,
+                   "PR3D.3A: existing PR3D.2C diagnostic TSV (requires --homology-extract).")
+        ->check(CLI::ExistingFile);
+
+    app.add_flag("--homology-block-align", opt.homology_block_align,
+                 "PR3D.3B experimental: align eligible candidate tiles in local abPOA MSAs. "
+                 "-i is original FASTA, --homology-extract-dir is an existing PR3D.3A extraction, -o is a NEW output directory. No global MSA.");
+    app.add_option("--homology-extract-dir", opt.homology_extract_dir,
+                   "PR3D.3B: existing lossless extraction directory (requires --homology-block-align).")
+        ->check(CLI::ExistingDirectory);
 
     // PR3A: only the bounded direct path is automatic so far. Long and
     // hierarchical requests are rejected in auto mode, never silently sent
@@ -361,6 +384,18 @@ static void setupCli(CLI::App& app, Options& opt) {
     // --save-workdir: keep working directory (default will delete).
     app.add_flag("--save-workdir", opt.save_workdir,
         "Keep the working directory after completion (default: remove). Useful for debugging.");
+    app.add_flag("--ultralong", opt.ultralong,
+                 "PR3D.4C-V2 opt-in native bounded MSA; not yet ultralong out-of-core.");
+    app.add_flag("--ultralong-stream", opt.ultralong_stream,
+                 "PR3D.4D.3 opt-in sparse-FASTA 64-bit window-native MSA; experimental.");
+    app.add_option("--ultralong-report", opt.ultralong_report,
+                   "Confidence TSV for native MSA (default: output.blocks.tsv).");
+    app.add_option("--ultralong-max-local-bases", opt.ultralong_max_local_bases,
+                   "Maximum bases per sequence in each local abPOA call (1..12000).");
+    app.add_option("--ultralong-max-total-bases", opt.ultralong_max_total_bases,
+                   "Maximum source DNA bases (2..8000000), and 1Mb per read.");
+    app.add_option("--ultralong-min-identity", opt.ultralong_min_identity,
+                   "Minimum observed local reference/query identity (0..1).");
 }
 
 // logParsedOptions: Output parsed parameters in a nice table format to log

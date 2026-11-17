@@ -40,6 +40,9 @@ add_executable(halign4
         src/align/native_msa.cpp
         src/align/strategy.cpp
         src/align/homology_plan.cpp
+        src/align/lossless_extractor.cpp
+        src/align/block_local_msa.cpp
+        src/ultralong/native_pipeline.cpp
         src/align/profile_projection.cpp
         src/align/ordered_sam.cpp
         src/align/anchored_insertions.cpp
@@ -47,6 +50,12 @@ add_executable(halign4
         src/seed/anchor.cpp
 
 )
+
+# Diagnostic extractor can also be built independently without abPOA/WFA2.
+add_executable(halign4_pr3d3a_extract
+    tools/pr3d3a_native_cli.cpp
+    src/align/lossless_extractor.cpp)
+target_include_directories(halign4_pr3d3a_extract PRIVATE "${PROJECT_SOURCE_DIR}/include")
 
 # Static libcurl distributions can have missing transitive dependencies.
 # Optional network download support stays available through curl/wget executables.
@@ -123,3 +132,36 @@ endif()
 target_compile_definitions(halign4 PRIVATE
         $<$<CONFIG:Debug>:_DEBUG>
 )
+
+# PR3D.4D.1: 64-bit sparse out-of-core FASTA access, a separate indexing tool.
+# No change to the proven --ultralong aligner or legacy commands.
+add_library(halign4_sparse_fasta STATIC src/ultralong/sparse_fasta.cpp)
+target_include_directories(halign4_sparse_fasta PUBLIC "${PROJECT_SOURCE_DIR}/include")
+add_executable(halign4_fasta64_index tools/fasta64_cli.cpp)
+target_link_libraries(halign4_fasta64_index PRIVATE halign4_sparse_fasta)
+
+# PR3D.4D.2: independent, 64-bit index-backed homology WINDOW PLANNER only.
+# The proven --ultralong MSA backend remains unchanged in this PR.
+add_library(halign4_window64 STATIC
+    src/ultralong/window64_plan.cpp
+    src/align/homology_plan.cpp)
+target_include_directories(halign4_window64 PUBLIC "${PROJECT_SOURCE_DIR}/include")
+target_link_libraries(halign4_window64 PUBLIC halign4_sparse_fasta)
+add_executable(halign4_window64_plan tools/window64_cli.cpp)
+target_link_libraries(halign4_window64_plan PRIVATE halign4_window64)
+
+# PR3D.4D.3: real out-of-core MSA (index-backed windows -> local abPOA -> streamed FASTA).
+# The original memory-resident --ultralong and legacy behavior are not altered.
+target_sources(halign4 PRIVATE src/ultralong/window64_msa.cpp)
+target_link_libraries(halign4 PRIVATE halign4_window64)
+add_executable(halign4_window64_msa
+  tools/window64_msa_cli.cpp
+  src/ultralong/window64_msa.cpp
+  src/align/native_msa.cpp)
+target_include_directories(halign4_window64_msa PRIVATE
+  "${PROJECT_SOURCE_DIR}/include" "${PROJECT_SOURCE_DIR}/extern/abPOA/include")
+target_link_libraries(halign4_window64_msa PRIVATE
+  halign4_window64 abpoa OpenMP::OpenMP_CXX)
+if(ZLIB_FOUND)
+  target_link_libraries(halign4_window64_msa PRIVATE ZLIB::ZLIB)
+endif()

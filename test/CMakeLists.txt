@@ -45,6 +45,8 @@ add_library(halign4_test_support STATIC
         "${HALIGN4_ROOT}/src/align/native_msa.cpp"
         "${HALIGN4_ROOT}/src/align/strategy.cpp"
         "${HALIGN4_ROOT}/src/align/homology_plan.cpp"
+        "${HALIGN4_ROOT}/src/align/lossless_extractor.cpp"
+        "${HALIGN4_ROOT}/src/align/block_local_msa.cpp"
         "${HALIGN4_ROOT}/src/align/profile_projection.cpp"
         "${HALIGN4_ROOT}/src/align/ordered_sam.cpp"
         "${HALIGN4_ROOT}/src/align/anchored_insertions.cpp"
@@ -148,6 +150,8 @@ add_executable(halign4_tests
         "${CMAKE_CURRENT_LIST_DIR}/test_strategy.cpp"
         "${CMAKE_CURRENT_LIST_DIR}/test_auto_hierarchical.cpp"
         "${CMAKE_CURRENT_LIST_DIR}/test_homology_plan.cpp"
+        "${CMAKE_CURRENT_LIST_DIR}/test_lossless_extractor.cpp"
+        "${CMAKE_CURRENT_LIST_DIR}/test_block_local_msa.cpp"
         "${CMAKE_CURRENT_LIST_DIR}/test_profile_projection.cpp"
         "${CMAKE_CURRENT_LIST_DIR}/test_ordered_sam.cpp"
         "${CMAKE_CURRENT_LIST_DIR}/test_anchored_insertions.cpp"
@@ -245,3 +249,8 @@ add_test(NAME auto_hierarchical COMMAND halign4_tests --test-suite=auto_hierarch
 
 # PR3D.1 diagnostic-only: does not create an MSA.
 add_test(NAME homology_plan COMMAND halign4_tests --test-suite=homology_plan)
+
+add_test(NAME lossless_extractor COMMAND halign4_tests --test-suite=lossless_extractor)
+
+# PR3D.3B: independent candidate-only local abPOA MSA.
+add_test(NAME block_local_msa COMMAND halign4_tests --test-suite=block_local_msa)

@@ -6,7 +6,12 @@
 #include "align.h"
 #include "align/strategy.hpp"
 #include "align/homology_plan.hpp"
+#include "align/lossless_extractor.hpp"
+#include "align/block_local_msa.hpp"
 #include "align/native_msa.hpp"
+#include "ultralong/native_pipeline.hpp"
+#include "ultralong/window64_msa.hpp"
+#include <chrono>
 
 // Program entry: command line parsing -> preprocessing -> consensus alignment -> sequence alignment -> result merging -> cleanup working directory
 
@@ -77,6 +82,74 @@ int main(int argc, char** argv) {
         setupCli(app, opt);
         CLI11_PARSE(app, argc, argv);
 
+        // PR3D.4C-V2: explicit native dispatch BEFORE legacy workdir creation,
+        // preprocessing, external MSA commands or other diagnostic modes.
+        if (!opt.ultralong && !opt.ultralong_stream && (!opt.ultralong_report.empty()))
+            throw std::invalid_argument("--ultralong-report requires --ultralong or --ultralong-stream");
+        // PR3D.4D.3: 64-bit out-of-core MSA dispatcher. Dispatch before legacy
+        // preprocessing and before the <=1Mb memory-resident --ultralong path.
+        if (opt.ultralong_stream) {
+            if (opt.ultralong || opt.mode != "legacy" || opt.keep_length || !opt.center_path.empty() ||
+                !opt.msa_cmd.empty() || opt.homology_plan || opt.strict_homology_plan ||
+                opt.recover_homology_plan || opt.homology_extract || opt.homology_block_align ||
+                !opt.homology_plan_tsv.empty() || !opt.homology_extract_dir.empty() ||
+                opt.anchored_insertions || opt.native_center || opt.auto_hierarchical ||
+                opt.soft_anchors || opt.soft_anchor_recruit || !opt.workdir.empty() ||
+                opt.save_workdir) {
+                throw std::invalid_argument("--ultralong-stream cannot be combined with legacy or other MSA modes");
+            }
+            if (opt.threads < 1) throw std::invalid_argument("--threads must be positive");
+            ultralong::WindowMsaConfig cfg;
+            cfg.local_max_bases = opt.ultralong_max_local_bases;
+            cfg.min_reference_identity = opt.ultralong_min_identity;
+            // The bounded --ultralong mode keeps its original 8M default.
+            // The streamed mode defaults to a 800M aggregate limit.
+            cfg.max_total_bases = app.get_option("--ultralong-max-total-bases")->count()
+                ? static_cast<std::uint64_t>(opt.ultralong_max_total_bases)
+                : std::uint64_t{800000000};
+            const auto sidecar = opt.ultralong_report.empty()
+                ? opt.output + ".blocks.tsv" : opt.ultralong_report;
+            const auto started = std::chrono::steady_clock::now();
+            const auto stats = ultralong::runWindowMsa(opt.input,opt.output,sidecar,cfg);
+            const auto elapsed = std::chrono::duration<double>(
+                std::chrono::steady_clock::now()-started).count();
+            spdlog::info("PR3D.4D.3 out-of-core: bases={} windows={} local_blocks={} "
+                         "anchored_reference_bp={} private_bp={} msa_columns={} elapsed_sec={:.3f}",
+                         stats.original_bases,stats.windows,stats.aligned_blocks,
+                         stats.aligned_reference_bases,stats.private_bases,stats.output_columns,elapsed);
+            spdlog::warn("Homology quality NOT evaluated in-process; review sidecar and independent pairwise F1");
+            return 0;
+        }
+        if (opt.ultralong) {
+            if (opt.mode != "legacy" || opt.keep_length || !opt.center_path.empty() ||
+                !opt.msa_cmd.empty() || opt.homology_plan || opt.strict_homology_plan ||
+                opt.recover_homology_plan || opt.homology_extract || opt.homology_block_align ||
+                !opt.homology_plan_tsv.empty() || !opt.homology_extract_dir.empty() ||
+                opt.anchored_insertions || opt.native_center || opt.auto_hierarchical ||
+                opt.soft_anchors || opt.soft_anchor_recruit || !opt.workdir.empty() ||
+                opt.save_workdir) {
+                throw std::invalid_argument("--ultralong is standalone; cannot combine with legacy, "
+                                            "planner/extractor, center or workdir options");
+            }
+            if (opt.threads < 1) throw std::invalid_argument("--threads must be positive");
+            ultralong_native::Config cfg;
+            cfg.max_local_bases = opt.ultralong_max_local_bases;
+            cfg.max_total_bases = opt.ultralong_max_total_bases;
+            cfg.min_reference_identity = opt.ultralong_min_identity;
+            const auto sidecar = opt.ultralong_report.empty()
+                ? opt.output + ".blocks.tsv" : opt.ultralong_report;
+            const auto start = std::chrono::steady_clock::now();
+            const auto stats = ultralong_native::run(opt.input,opt.output,sidecar,cfg);
+            const double elapsed = std::chrono::duration<double>(
+                std::chrono::steady_clock::now()-start).count();
+            spdlog::info("PR3D.4C-V2 native preview: total_bases={} columns={} "
+                         "accepted_blocks={} accepted_ref_bases={} private_bases={} elapsed_sec={:.3f}",
+                         stats.original_bases,stats.output_columns,stats.accepted_blocks,
+                         stats.aligned_reference_bases,stats.private_bases,elapsed);
+            spdlog::warn("PR3D.4C-V2 native preview: 1Mb/read memory-resident planner, NOT out-of-core");
+            return 0;
+        }
+
         // Set default working directory if not provided, and log the final options for user confirmation.
         if (opt.workdir.empty()) {
             opt.workdir = makeDefaultWorkdir();
@@ -86,6 +159,56 @@ int main(int argc, char** argv) {
         // Print parameters
         logParsedOptions(opt);
         spdlog::info("Starting halign4 version {}...", VERSION);
+
+        // PR3D.3B: opt-in candidate-only local MSA; never touches the legacy
+        // or global aligner, and never promotes UNRESOLVED to homology.
+        if (!opt.homology_block_align && !opt.homology_extract_dir.empty())
+            throw std::invalid_argument("--homology-extract-dir requires --homology-block-align");
+        if (opt.homology_block_align) {
+            if (opt.homology_extract_dir.empty() || opt.homology_extract ||
+                !opt.homology_plan_tsv.empty() || opt.homology_plan ||
+                opt.strict_homology_plan || opt.recover_homology_plan ||
+                opt.mode != "legacy" || opt.keep_length || !opt.center_path.empty() ||
+                !opt.msa_cmd.empty() || opt.anchored_insertions || opt.native_center ||
+                opt.auto_hierarchical || opt.soft_anchors || opt.soft_anchor_recruit) {
+                throw std::invalid_argument(
+                    "--homology-block-align requires --homology-extract-dir and conflicts "
+                    "with planning, extraction, routing, and global MSA flags");
+            }
+            const auto result = block_local_msa::align(
+                opt.input, opt.homology_extract_dir, opt.output);
+            spdlog::info("PR3D.3B local candidate MSAs: blocks={} aligned={} "
+                         "skip_no_query={} skip_budget={} rows={} unresolved_tiles={} "
+                         "(no global MSA)",
+                         result.blocks, result.aligned, result.skipped_no_query,
+                         result.skipped_budget, result.aligned_rows,
+                         result.unresolved_tiles);
+            return 0;
+        }
+
+        // PR3D.3A: standalone diagnostic extraction from an existing TSV.
+        // Keep the planner and MSA codepaths unchanged; -o is a NEW directory.
+        if (!opt.homology_extract && !opt.homology_plan_tsv.empty())
+            throw std::invalid_argument("--homology-plan-tsv requires --homology-extract");
+        if (opt.homology_extract) {
+            if (opt.homology_plan_tsv.empty() || opt.homology_plan ||
+                opt.strict_homology_plan || opt.recover_homology_plan ||
+                opt.mode != "legacy" || opt.keep_length || !opt.center_path.empty() ||
+                !opt.msa_cmd.empty() || opt.anchored_insertions || opt.native_center ||
+                opt.auto_hierarchical || opt.soft_anchors || opt.soft_anchor_recruit) {
+                throw std::invalid_argument(
+                    "--homology-extract requires --homology-plan-tsv, and conflicts with "
+                    "MSA/center/planner/routing flags (leave --mode legacy)");
+            }
+            const auto summary = lossless_extractor::extract(
+                opt.input, opt.homology_plan_tsv, opt.output);
+            spdlog::info("PR3D.3A diagnostic extraction: reads={} blocks={} candidates={} "
+                         "rejected={} tiles={} unresolved_bases={} (no MSA)",
+                         summary.reads, summary.blocks, summary.accepted_query_candidates,
+                         summary.rejected_conflicting_candidates, summary.tiles,
+                         summary.unresolved_query_bases);
+            return 0;
+        }
 
         // PR3D.1 audit-only fast exit. Do not preprocess, route, align, create
         // a work directory, launch abPOA, or write any FASTA/MSA results.
