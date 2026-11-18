@@ -165,3 +165,7 @@ target_link_libraries(halign4_window64_msa PRIVATE
 if(ZLIB_FOUND)
   target_link_libraries(halign4_window64_msa PRIVATE ZLIB::ZLIB)
 endif()
+
+# PR3D.4D.5B opt-in rescue helper, used by window planner and MSA only.
+# Must be linked into halign4_window64 so the same logic is shared by both.
+target_sources(halign4_window64 PRIVATE src/ultralong/rescue_geometry.cpp)

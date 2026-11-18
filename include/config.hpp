@@ -221,6 +221,7 @@ struct Options {
     // PR3D.4C-V2: opt-in integrated native bounded-preview MSA.
     bool ultralong = false;
     bool ultralong_stream = false; // --ultralong-stream: independent out-of-core MSA path
+    bool ultralong_stream_rescue = false; // --ultralong-stream-rescue: optional conservative k9/10 recovery
     std::string ultralong_report;
     std::size_t ultralong_max_local_bases = 12000;
     std::size_t ultralong_max_total_bases = 8000000;
@@ -388,6 +389,8 @@ static void setupCli(CLI::App& app, Options& opt) {
                  "PR3D.4C-V2 opt-in native bounded MSA; not yet ultralong out-of-core.");
     app.add_flag("--ultralong-stream", opt.ultralong_stream,
                  "PR3D.4D.3 opt-in sparse-FASTA 64-bit window-native MSA; experimental.");
+    app.add_flag("--ultralong-stream-rescue", opt.ultralong_stream_rescue,
+                 "PR3D.4D.5B opt-in conservative rescue of unresolved window/query homology.");
     app.add_option("--ultralong-report", opt.ultralong_report,
                    "Confidence TSV for native MSA (default: output.blocks.tsv).");
     app.add_option("--ultralong-max-local-bases", opt.ultralong_max_local_bases,

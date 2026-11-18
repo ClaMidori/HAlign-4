@@ -11,12 +11,14 @@ struct Window64Config {
     std::uint64_t checkpoint_stride = 65536;
     std::size_t max_reads = 8;
     std::uint64_t max_total_bases = 800000000;
+    bool rescue_unresolved = false; // opt-in k=10,9 rerun only on unresolved windows
 };
 struct Window64Stats {
     std::uint64_t total_bases = 0;
     std::uint64_t windows = 0;
     std::uint64_t candidate_pairs = 0;
     std::uint64_t unresolved_pairs = 0;
+    std::uint64_t rescued_candidate_pairs = 0;
     std::uint64_t anchored_ref_bases = 0; // summed across candidate query rows
 };
 // Writes ONLY a TSV of potential windows, never a sequence alignment.

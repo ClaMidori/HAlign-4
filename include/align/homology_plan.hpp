@@ -17,6 +17,7 @@ struct Limits {
 };
 struct Config {
     unsigned k = 11;
+    bool allow_short_k = false; // PR3D.4D.5B opt-in bounded rescue, k=9/10 only
     std::size_t target_block_bases = 20000;
     std::size_t boundary_radius = 500;
     std::size_t local_span = 10000;

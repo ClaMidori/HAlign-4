@@ -84,6 +84,8 @@ int main(int argc, char** argv) {
 
         // PR3D.4C-V2: explicit native dispatch BEFORE legacy workdir creation,
         // preprocessing, external MSA commands or other diagnostic modes.
+        if (opt.ultralong_stream_rescue && !opt.ultralong_stream)
+            throw std::invalid_argument("--ultralong-stream-rescue requires --ultralong-stream");
         if (!opt.ultralong && !opt.ultralong_stream && (!opt.ultralong_report.empty()))
             throw std::invalid_argument("--ultralong-report requires --ultralong or --ultralong-stream");
         // PR3D.4D.3: 64-bit out-of-core MSA dispatcher. Dispatch before legacy
@@ -102,6 +104,7 @@ int main(int argc, char** argv) {
             ultralong::WindowMsaConfig cfg;
             cfg.local_max_bases = opt.ultralong_max_local_bases;
             cfg.min_reference_identity = opt.ultralong_min_identity;
+            cfg.rescue_unresolved = opt.ultralong_stream_rescue;
             // The bounded --ultralong mode keeps its original 8M default.
             // The streamed mode defaults to a 800M aggregate limit.
             cfg.max_total_bases = app.get_option("--ultralong-max-total-bases")->count()
@@ -117,6 +120,8 @@ int main(int argc, char** argv) {
                          "anchored_reference_bp={} private_bp={} msa_columns={} elapsed_sec={:.3f}",
                          stats.original_bases,stats.windows,stats.aligned_blocks,
                          stats.aligned_reference_bases,stats.private_bases,stats.output_columns,elapsed);
+            spdlog::info("PR3D.4D.5B rescue={} window_candidates={} recovered_local_rows={}",
+                         cfg.rescue_unresolved,stats.rescued_window_candidates,stats.rescued_local_rows);
             spdlog::warn("Homology quality NOT evaluated in-process; review sidecar and independent pairwise F1");
             return 0;
         }

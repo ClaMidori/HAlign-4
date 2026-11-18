@@ -296,7 +296,7 @@ std::vector<Sequence> readFasta(const std::filesystem::path& input, Limits limit
 
 Plan build(const std::vector<Sequence>& sequences, Config config, Limits limits) {
     validateInput(sequences, limits);
-    if (config.k != 11 || config.target_block_bases < 5000 || config.target_block_bases > 100000 ||
+    if ((config.k != 11 && !(config.allow_short_k && (config.k == 9 || config.k == 10))) || config.target_block_bases < 5000 || config.target_block_bases > 100000 ||
         config.boundary_radius == 0 || config.boundary_radius > 1000 ||
         config.local_span == 0 || config.local_span > 20000 ||
         config.diagonal_tolerance == 0 || config.diagonal_tolerance > 64 ||

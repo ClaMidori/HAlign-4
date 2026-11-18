@@ -3,6 +3,7 @@
 #include "ultralong/sparse_fasta.hpp"
 #include "align/homology_plan.hpp"
 #include "align/native_msa.hpp"
+#include "ultralong/rescue_geometry.hpp"
 
 #include <algorithm>
 #include <array>
@@ -25,7 +26,7 @@ namespace fs=std::filesystem;
 namespace ultralong {
 namespace {
 using Pos=std::uint64_t;
-struct Projection { Pos from=0,to=0; bool candidate=false; };
+struct Projection { Pos from=0,to=0; bool candidate=false, rescued=false; };
 struct Window { Pos from=0,to=0; std::vector<Projection> query; };
 struct Block { Pos from=0,to=0; std::vector<Projection> query; };
 std::vector<std::string> tabs(const std::string& s) {
@@ -78,11 +79,11 @@ private:
     void parseRow(const std::vector<std::string>& f,std::size_t r,Window& w) {
         if(number(f[2])!=w.from || number(f[3])!=w.to)throw std::runtime_error("window plan interval mismatch");
         auto& q=w.query.at(r-1);
-        if(f[7]=="CANDIDATE_ONLY"){
+        if(f[7]=="CANDIDATE_ONLY" || f[7]=="RESCUE_CANDIDATE_ONLY"){
             q.from=number(f[4]);q.to=number(f[5]);
             if(q.from>=q.to||q.to>fasta_.reads()[r].bases || number(f[6])<4)
                 throw std::runtime_error("unsafe candidate geometry in window plan");
-            q.candidate=true;
+            q.candidate=true; q.rescued=(f[7]=="RESCUE_CANDIDATE_ONLY");
         }else if(f[7].rfind("UNRESOLVED_",0)==0){
             if(f[4]!="NA"||f[5]!="NA")throw std::runtime_error("unresolved plan must have NA bounds");
         }else throw std::runtime_error("unknown window planner status");
@@ -176,8 +177,9 @@ public:
     }
     void accepted(Pos window,Pos block,const std::vector<std::size_t>& chosen,
                   const std::vector<Pos>& begin,const std::vector<Pos>& end,
-                  const native_msa::Alignment& msa,Pos ref_from,Pos ref_to){
-        if(chosen.empty()||chosen.size()!=msa.rows.size()||msa.columns==0)throw std::runtime_error("invalid local MSA shape");
+                  const native_msa::Alignment& msa,Pos ref_from,Pos ref_to,
+                  const std::vector<bool>& rescued){
+        if(chosen.empty()||chosen.size()!=msa.rows.size()||chosen.size()!=rescued.size()||msa.columns==0)throw std::runtime_error("invalid local MSA shape");
         for(std::size_t i=0;i<chosen.size();++i){
             const auto r=chosen[i];
             if(r>=cursor_.size()||begin[i]!=cursor_[r]||end[i]<begin[i]||end[i]>fasta_.reads()[r].bases||
@@ -202,7 +204,8 @@ public:
             const auto r=chosen[i];cursor_[r]=end[i];
             journal_<<"ANCHORED_LOCAL_ABPOA\t"<<window<<'\t'<<block<<'\t'<<fasta_.reads()[r].id<<'\t'
                     <<begin[i]<<'\t'<<end[i]<<'\t'<<ref_from<<'\t'<<ref_to<<'\t'<<msa.columns
-                    <<"\tHEURISTIC_NOT_VERIFIED\n";
+                    <<(rescued[i] ? "\tRESCUE_K9_10_HEURISTIC_NOT_VERIFIED\n" :
+                                      "\tHEURISTIC_NOT_VERIFIED\n");
         }
         width_+=msa.columns;
     }
@@ -310,11 +313,13 @@ WindowMsaStats runWindowMsa(const fs::path& in,const fs::path& output,const fs::
     Stage stage(out,side,fasta);
     Window64Config wc;
     wc.max_reads=cfg.max_reads;wc.max_total_bases=cfg.max_total_bases;
+    wc.rescue_unresolved=cfg.rescue_unresolved;
     const auto pstats=planWindows(source,stage.dir()/"window_plan.tsv",wc);
     PlanReader plans(stage.dir()/"window_plan.tsv",fasta);
     WindowMsaStats stats;
     stats.original_bases=fasta.totalBases();stats.windows=pstats.windows;
     stats.candidate_query_windows=pstats.candidate_pairs;
+    stats.rescued_window_candidates=pstats.rescued_candidate_pairs;
     homology_plan::Config pc;
     pc.target_block_bases=5000;pc.boundary_radius=1000;
     pc.strict_candidate_guard=true;pc.recover_indel_flanks=true;
@@ -338,18 +343,57 @@ WindowMsaStats runWindowMsa(const fs::path& in,const fs::path& output,const fs::
         if(local.size()<2){stage.privateRegion(0,w.to,win_idx,0,"WINDOW_NOT_SUPPORTED");continue;}
         homology_plan::Limits limits{local.size(),100000,static_cast<std::size_t>(local.size()*100000)};
         const auto plan=homology_plan::build(local,pc,limits);
-        const auto blocks=localBlocks(plan,local);
+        auto blocks=localBlocks(plan,local);
+        // Primary reference partitions are preserved whenever they contain
+        // at least one aligned candidate. Recovery never replaces accepted
+        // primary sub-block boundaries in that case.
+        std::vector<std::vector<homology_plan::Anchor>> alternate_lanes(local.size()-1);
+        bool needs_rescue=false;
+        if(cfg.rescue_unresolved){
+            for(const auto& b:blocks){
+                for(const auto& q:b.query)if(!q.candidate)needs_rescue=true;
+            }
+            if(needs_rescue){
+                auto alt_cfg=pc;alt_cfg.k=9;alt_cfg.allow_short_k=true;
+                const auto alt=homology_plan::build(local,alt_cfg,limits);
+                alternate_lanes=alt.supported_anchors;
+                // Only if ALL primary blocks are unsupported may we use
+                // alternate partition boundaries. Otherwise preserve them.
+                bool primary_has_candidate=false;
+                for(const auto& b:blocks)
+                    for(const auto& q:b.query)if(q.candidate)primary_has_candidate=true;
+                if(!primary_has_candidate){
+                    auto alternative_blocks=localBlocks(alt,local);
+                    if(alternative_blocks.size()>blocks.size())
+                        blocks=std::move(alternative_blocks);
+                }
+            }
+        }
         for(std::size_t b=0;b<blocks.size();++b){
             const auto& block=blocks[b];
             const auto ref0=w.from+block.from,ref1=w.from+block.to;
             if(ref0!=stage.cursor(0) || ref1>w.to)throw std::runtime_error("local/global reference block boundary mismatch");
             std::vector<std::size_t> chosen{0};
             std::vector<Pos> begins{ref0}, ends{ref1};
+            std::vector<bool> rescued{false};
             std::vector<native_msa::Sequence> dna{{local[0].id,local[0].bases.substr(block.from,block.to-block.from)}};
             std::size_t total=dna[0].bases.size();
             if(total<=cfg.local_max_bases){
                 for(std::size_t i=1;i<local.size();++i){
-                    const auto q=block.query[i-1];
+                    auto q=block.query[i-1];
+                    bool is_rescued=false;
+                    if(!q.candidate && cfg.rescue_unresolved){
+                        const auto proposal=projectRescueRange(
+                            alternate_lanes[i-1],local[0].bases,local[i].bases,
+                            static_cast<std::uint32_t>(block.from),
+                            static_cast<std::uint32_t>(block.to));
+                        if(proposal){
+                            q.from=proposal->query_start;
+                            q.to=proposal->query_end;
+                            q.candidate=true;
+                            is_rescued=true;
+                        }
+                    }
                     if(!q.candidate)continue;
                     ++stats.local_candidate_rows;
                     const auto r=index[i];
@@ -359,6 +403,7 @@ WindowMsaStats runWindowMsa(const fs::path& in,const fs::path& output,const fs::
                         ++stats.skipped_budget;continue;
                     }
                     chosen.push_back(r);begins.push_back(start);ends.push_back(stop);
+                    rescued.push_back(is_rescued || w.query[r-1].rescued);
                     dna.push_back({local[i].id,local[i].bases.substr(q.from,q.to-q.from)});
                     total+=q.to-q.from;
                 }
@@ -368,7 +413,34 @@ WindowMsaStats runWindowMsa(const fs::path& in,const fs::path& output,const fs::
             options.max_sequences=cfg.max_reads;
             options.max_sequence_bases=cfg.local_max_bases;
             options.max_total_bases=cfg.local_max_total_bases;
-            const auto aligned=native_msa::align(dna,options);
+            auto aligned=native_msa::align(dna,options);
+            if(!plausible(aligned,dna,cfg.min_reference_identity)){
+                // A rescued query must never veto an already supported
+                // primary alignment: retry the primary-only read set.
+                if(std::any_of(rescued.begin(),rescued.end(),[](bool x){return x;})){
+                    std::vector<std::size_t> base_chosen;
+                    std::vector<Pos> base_begins,base_ends;
+                    std::vector<native_msa::Sequence> base_dna;
+                    for(std::size_t j=0;j<chosen.size();++j){
+                        if(rescued[j])continue;
+                        base_chosen.push_back(chosen[j]);
+                        base_begins.push_back(begins[j]);
+                        base_ends.push_back(ends[j]);
+                        base_dna.push_back(dna[j]);
+                    }
+                    if(base_dna.size()>=2){
+                        auto base_aligned=native_msa::align(base_dna,options);
+                        if(plausible(base_aligned,base_dna,cfg.min_reference_identity)){
+                            chosen=std::move(base_chosen);
+                            begins=std::move(base_begins);
+                            ends=std::move(base_ends);
+                            dna=std::move(base_dna);
+                            rescued.assign(chosen.size(),false);
+                            aligned=std::move(base_aligned);
+                        }
+                    }
+                }
+            }
             if(!plausible(aligned,dna,cfg.min_reference_identity)){
                 ++stats.rejected_postcheck;
                 stage.privateRegion(0,ref1,win_idx,b+1,"POSTCHECK_REJECTED");continue;
@@ -376,7 +448,8 @@ WindowMsaStats runWindowMsa(const fs::path& in,const fs::path& output,const fs::
             // Private query intervals BEFORE the accepted block, never promoted as homology.
             for(std::size_t i=1;i<chosen.size();++i)
                 stage.privateRegion(chosen[i],begins[i],win_idx,b+1,"QUERY_PREFIX_UNRESOLVED");
-            stage.accepted(win_idx,b+1,chosen,begins,ends,aligned,ref0,ref1);
+            stage.accepted(win_idx,b+1,chosen,begins,ends,aligned,ref0,ref1,rescued);
+            for(bool x:rescued)if(x)++stats.rescued_local_rows;
             ++stats.aligned_blocks;stats.aligned_reference_bases+=ref1-ref0;
         }
     }

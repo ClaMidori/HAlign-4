@@ -1,6 +1,7 @@
 #include "ultralong/window64_plan.hpp"
 #include "ultralong/sparse_fasta.hpp"
 #include "align/homology_plan.hpp"
+#include "ultralong/rescue_geometry.hpp"
 #include <algorithm>
 #include <cstdlib>
 #include <unistd.h>
@@ -141,9 +142,36 @@ Window64Stats planWindows(const fs::path& input,const fs::path& output,Window64C
                 // continue to use 32-bit coordinates *within* a window only.
                 const auto plan=homology_plan::build(local,pc,local_limits);
                 status=statusFor(plan,rlen,qs,item.bases,tracks[r],r0,r1,qa,qb,anchor_count);
+                // PR3D.4D.5B: opt-in bounded second pass ONLY for unresolved
+                // windows. Never touches a primary candidate or its shift.
+                if (cfg.rescue_unresolved && status!="CANDIDATE_ONLY") {
+                    for (unsigned k : {10U,9U}) {
+                        auto alternate=pc;
+                        alternate.k=k;
+                        alternate.allow_short_k=true;
+                        const auto rescue_plan=homology_plan::build(local,alternate,local_limits);
+                        if(rescue_plan.supported_anchors.empty())continue;
+                        const auto proposed=projectRescueRange(
+                            rescue_plan.supported_anchors[0],ref,query,0,
+                            static_cast<std::uint32_t>(rlen));
+                        if(!proposed)continue;
+                        Track trial=tracks[r];
+                        std::uint64_t a=0,b=0,c=0;
+                        const auto trial_status=statusFor(rescue_plan,rlen,qs,item.bases,
+                            trial,r0,r1,a,b,c);
+                        if(trial_status!="CANDIDATE_ONLY")continue;
+                        if(std::llabs(static_cast<std::int64_t>(a-qs)-proposed->query_start)>32 ||
+                           std::llabs(static_cast<std::int64_t>(b-qs)-proposed->query_end)>32)continue;
+                        tracks[r]=trial;
+                        qa=a;qb=b;anchor_count=c;
+                        status="RESCUE_CANDIDATE_ONLY";
+                        ++stats.rescued_candidate_pairs;
+                        break;
+                    }
+                }
             }
             journal<<stats.windows<<'\t'<<item.id<<'\t'<<r0<<'\t'<<r1<<'\t';
-            if(status=="CANDIDATE_ONLY") {
+            if(status=="CANDIDATE_ONLY" || status=="RESCUE_CANDIDATE_ONLY") {
                 journal<<qa<<'\t'<<qb<<'\t';
                 ++stats.candidate_pairs;
                 stats.anchored_ref_bases+=rlen;
